@@ -6,7 +6,7 @@ toolchain go1.21.4
 
 require (
 	dagger.io/dagger v0.9.6
-	github.com/docker/docker v25.0.2+incompatible
+	github.com/docker/docker v25.0.3+incompatible
 	github.com/docker/go-units v0.5.0
 	github.com/grafana/grafana-plugin-sdk-go v0.212.0
 	github.com/grafana/sqlds/v2 v2.7.2
