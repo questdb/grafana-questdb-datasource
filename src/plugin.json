@@ -1,0 +1,41 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/master/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "datasource",
+  "name": "QuestDB",
+  "id": "grafana-questdb-datasource",
+  "metrics": true,
+  "backend": true,
+  "logs": true,
+  "alerting": true,
+  "annotations": true,
+  "executable": "gpx_questdb",
+  "category": "sql",
+  "info": {
+    "description": "QuestDB datasource plugin for Grafana",
+    "author": {
+      "name": "QuestDB"
+    },
+    "keywords": ["Simple"],
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "links": [
+      {
+        "name": "Website",
+        "url": "https://github.com/questdb/grafana-datasource"
+      },
+      {
+        "name": "License",
+        "url": "https://github.com/questdb/grafana-datasource/blob/master/LICENSE"
+      }
+    ],
+    "screenshots": [],
+    "version": "%VERSION%",
+    "updated": "%TODAY%"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=9.5.0",
+    "plugins": []
+  }
+}
