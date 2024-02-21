@@ -57,4 +57,4 @@ You need to have commit rights to the GitHub repository to publish a release.
    from [GitHub's Release drafter interface](https://github.com/questdb/grafana-questdb-datasource/releases/new) or by
    running `npm run generate-release-notes`.
 3. PR the changes.
-4. Once merged, follow the Drone release process that you can find [here](https://github.com/grafana/integrations-team/wiki/Plugin-Release-Process#drone-release-proces
+4. Once merged, follow the Drone release process that you can find [here](https://github.com/grafana/integrations-team/wiki/Plugin-Release-Process#drone-release-proces)
