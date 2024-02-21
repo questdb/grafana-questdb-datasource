@@ -49,7 +49,7 @@ func (settings *Settings) isValid() (err error) {
 	if settings.Port <= 0 {
 		return ErrorMessageInvalidPort
 	}
-	if len(settings.TlsMode) == 0 {
+	if len(settings.Username) == 0 {
 		return ErrorMessageInvalidUserName
 	}
 	if len(settings.Password) == 0 {
