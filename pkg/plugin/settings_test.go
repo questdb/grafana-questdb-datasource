@@ -133,13 +133,15 @@ func TestLoadSettings(t *testing.T) {
 				name: "should converting string values to the correct type",
 				args: args{
 					config: backend.DataSourceInstanceSettings{
-						JSONData:                []byte(`{"server": "test", "port": "1234", "timeout": "15", "queryTimeout": "25", "maxOpenConnections": 10, "maxIdleConnections": 5, "maxConnectionLifetime": 3600   }`),
-						DecryptedSecureJSONData: map[string]string{},
+						JSONData:                []byte(`{"server": "test", "username": "u", "port": "1234", "timeout": "15", "queryTimeout": "25", "maxOpenConnections": 10, "maxIdleConnections": 5, "maxConnectionLifetime": 3600   }`),
+						DecryptedSecureJSONData: map[string]string{"password": "p"},
 					},
 				},
 				wantSettings: Settings{
 					Server:                "test",
 					Port:                  1234,
+					Username:              "u",
+					Password:              "p",
 					Timeout:               "15",
 					QueryTimeout:          "25",
 					MaxOpenConnections:    10,

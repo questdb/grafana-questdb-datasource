@@ -1,5 +1,7 @@
 # QuestDB data source for Grafana
 
+<img alt="Sql builder" src="sql_builder.png" width="800"/>
+
 The QuestDB data source plugin allows you to query and visualize QuestDB
 data from within Grafana.
 
@@ -19,11 +21,17 @@ example, statements like `UPDATE users SET name='blahblah'`
 and `DROP TABLE importantTable;` would be executed.
 
 To configure a readonly user, follow these steps:
-1. Set the following properties in server.conf file:
-   - pg.readonly.user.enabled=true
-   - pg.readonly.user=myuser
-   - pg.readonly.password=secret
-2. Restart QuestDB instance.
+* Open Source version
+  1. Set the following properties in server.conf file:
+     - pg.readonly.user.enabled=true
+     - pg.readonly.user=myuser
+     - pg.readonly.password=secret
+  2. Restart QuestDB instance.
+* Enterprise version
+  1. Create user:
+     - CREATE USER grafana_readonly;
+  2. Grant read permission on selected tables/table columns   ; 
+     - GRANT SELECT ON table1, ... TO grafana_readonly;
 
 ### Manual configuration
 
