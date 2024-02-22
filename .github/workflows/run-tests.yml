@@ -65,6 +65,7 @@ jobs:
           version: latest
           args: -v buildAll
 
+
       - name: Get plugin metadata
         id: metadata
         run: |
