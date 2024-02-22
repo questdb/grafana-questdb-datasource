@@ -29,12 +29,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-const defaultQuestDBVersion = "latest"
-
-func GetQuestDBTestVersion() string {
-	return GetEnv("QUESTDB_VERSION", defaultQuestDBVersion)
-}
-
 func GetEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
@@ -51,7 +45,6 @@ func TestMain(m *testing.M) {
 	}
 	// create a QuestDB container
 	ctx := context.Background()
-	// attempt use docker for CI
 	provider, err := testcontainers.ProviderDocker.GetProvider()
 	if err != nil {
 		fmt.Printf("Docker is not running and no questdb connections details were provided. Skipping IT tests: %s\n", err)
@@ -62,11 +55,11 @@ func TestMain(m *testing.M) {
 		fmt.Printf("Docker is not running and no questdb connections details were provided. Skipping IT tests: %s\n", err)
 		os.Exit(0)
 	}
-	questDbVersion := GetQuestDBTestVersion()
-	fmt.Printf("Using Docker for IT tests with QuestDB %s\n", questDbVersion)
+	questDbName := GetEnv("QUESTDB_NAME", "questdb/questdb")
+	questDbVersion := GetEnv("QUESTDB_VERSION", "latest")
+	fmt.Printf("Using Docker for tests with QuestDB %s:%s\n", questDbName, questDbVersion)
 	cwd, err := os.Getwd()
 	if err != nil {
-		// can't test without container
 		panic(err)
 	}
 
@@ -83,7 +76,7 @@ func TestMain(m *testing.M) {
 				mount.Mount{Source: path.Join(cwd, serverConfPath), Target: "/var/lib/questdb/conf/server.conf", ReadOnly: true, Type: mount.TypeBind},
 				mount.Mount{Source: path.Join(cwd, keysPath), Target: "/var/lib/questdb/conf/keys", ReadOnly: true, Type: mount.TypeBind})
 		},
-		Image: fmt.Sprintf("questdb/questdb:%s", questDbVersion),
+		Image: fmt.Sprintf("%s:%s", questDbName, questDbVersion),
 		Resources: container.Resources{
 			Ulimits: []*units.Ulimit{
 				{

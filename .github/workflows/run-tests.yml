@@ -1,4 +1,4 @@
-name: "Package Plugin"
+name: Test and package plugin
 
 on:
   push:
@@ -7,10 +7,23 @@ on:
   pull_request:
     branches:
       - main
+  # build may start failing due to questdb change
+  schedule:
+    - cron: '0 9 1 * *'
 
 jobs:
   run:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        questdb_version:
+          - latest
+          #- nightly
+        questdb_name:
+          - 'questdb/questdb'
+        # - 'questdb/enterprise'
+
     steps:
       - uses: actions/checkout@v4
 
@@ -25,11 +38,6 @@ jobs:
         with:
           node-version-file: '.nvmrc'
 
-      - name: Setup Go environment
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.21"
-
       - name: Install yarn dependencies
         run: yarn install
         env:
@@ -40,29 +48,40 @@ jobs:
         env:
           NODE_OPTIONS: '--max_old_space_size=4096'
 
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
       - name: Build backend
+        run: go build -v ./...
+
+      - name: Run backend tests
+        run: QUESTDB_NAME=${{ matrix.questdb_name }} QUESTDB_VERSION=${{ matrix.questdb_version }} go test -v ./...
+
+      - name: Build all backends
         uses: magefile/mage-action@v3
         with:
           version: latest
-          args: buildAll
+          args: -v buildAll
 
       - name: Get plugin metadata
         id: metadata
         run: |
           sudo apt-get install jq
-  
+          
           export GRAFANA_PLUGIN_ID=$(cat dist/plugin.json | jq -r .id)
           export GRAFANA_PLUGIN_VERSION=$(cat dist/plugin.json | jq -r .info.version)
           export GRAFANA_PLUGIN_TYPE=$(cat dist/plugin.json | jq -r .type)
           export GRAFANA_PLUGIN_ARTIFACT=${GRAFANA_PLUGIN_ID}-${GRAFANA_PLUGIN_VERSION}.zip
           export GRAFANA_PLUGIN_ARTIFACT_SHA1SUM=${GRAFANA_PLUGIN_ARTIFACT}.sha1
-  
+          
           echo "plugin-id=${GRAFANA_PLUGIN_ID}" >> $GITHUB_OUTPUT
           echo "plugin-version=${GRAFANA_PLUGIN_VERSION}" >> $GITHUB_OUTPUT
           echo "plugin-type=${GRAFANA_PLUGIN_TYPE}" >> $GITHUB_OUTPUT
           echo "archive=${GRAFANA_PLUGIN_ARTIFACT}" >> $GITHUB_OUTPUT
           echo "archive-sha1sum=${GRAFANA_PLUGIN_ARTIFACT_SHA1SUM}" >> $GITHUB_OUTPUT
-  
+          
           echo "github-tag=${GITHUB_REF#refs/*/}" >> $GITHUB_OUTPUT
         shell: bash
 
