@@ -54,15 +54,7 @@ func (h *QuestDB) Connect(config backend.DataSourceInstanceSettings, message jso
 		return nil, err
 	}
 
-	t, err := strconv.Atoi(settings.Timeout)
-	if err != nil {
-		log.DefaultLogger.Error("Invalid timeout", "error", err)
-		return nil, errors.New(fmt.Sprintf("invalid timeout: %s", settings.Timeout))
-	}
-	timeout := time.Duration(t)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout*time.Second)
-	defer cancel()
-
+	ctx := context.Background()
 	connstr, err := GenerateConnectionString(settings, getClientVersion(ctx))
 	if err != nil {
 		log.DefaultLogger.Error("QuestDB connection string generation failed", "error", err)

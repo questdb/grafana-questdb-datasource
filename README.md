@@ -1,6 +1,6 @@
 # QuestDB data source for Grafana
 
-<img alt="Sql builder" src="sql_builder.png" width="800"/>
+<img alt="Sql builder screenshot" src="https://github.com/questdb/grafana-questdb-datasource/blob/main/sql_builder.png?raw=true" width="800" >
 
 The QuestDB data source plugin allows you to query and visualize QuestDB
 data from within Grafana.
