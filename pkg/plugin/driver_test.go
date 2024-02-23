@@ -2,7 +2,6 @@ package plugin_test
 
 import (
 	"context"
-	"crypto/x509"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-units"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
@@ -28,12 +26,6 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
-
-const defaultQuestDBVersion = "latest"
-
-func GetQuestDBTestVersion() string {
-	return GetEnv("QUESTDB_VERSION", defaultQuestDBVersion)
-}
 
 func GetEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
@@ -51,7 +43,6 @@ func TestMain(m *testing.M) {
 	}
 	// create a QuestDB container
 	ctx := context.Background()
-	// attempt use docker for CI
 	provider, err := testcontainers.ProviderDocker.GetProvider()
 	if err != nil {
 		fmt.Printf("Docker is not running and no questdb connections details were provided. Skipping IT tests: %s\n", err)
@@ -62,37 +53,31 @@ func TestMain(m *testing.M) {
 		fmt.Printf("Docker is not running and no questdb connections details were provided. Skipping IT tests: %s\n", err)
 		os.Exit(0)
 	}
-	questDbVersion := GetQuestDBTestVersion()
-	fmt.Printf("Using Docker for IT tests with QuestDB %s\n", questDbVersion)
+	questDbName := GetEnv("QUESTDB_NAME", "questdb/questdb")
+	questDbVersion := GetEnv("QUESTDB_VERSION", "latest")
+	questDbTlsEnabled := GetEnv("QUESTDB_TLS_ENABLED", "false")
+	fmt.Printf("Using Docker for tests with QuestDB %s:%s\n", questDbName, questDbVersion)
+
 	cwd, err := os.Getwd()
 	if err != nil {
-		// can't test without container
 		panic(err)
 	}
 
-	keysPath := "../../config/keys"
-	serverConfPath := "../../config/server.conf"
+	keysPath := "../../keys"
 
 	req := testcontainers.ContainerRequest{
 		Env: map[string]string{
-			"TZ": "UTC",
+			"TZ":                          "UTC",
+			"QDB_PG_TLS_ENABLED":          questDbTlsEnabled,
+			"QDB_PG_TLS_CERT_PATH":        "/var/lib/questdb/conf/keys/server.crt",
+			"QDB_PG_TLS_PRIVATE_KEY_PATH": "/var/lib/questdb/conf/keys/server.key",
 		},
 		ExposedPorts: []string{"9000/tcp", "8812/tcp"},
 		HostConfigModifier: func(config *container.HostConfig) {
 			config.Mounts = append(config.Mounts,
-				mount.Mount{Source: path.Join(cwd, serverConfPath), Target: "/var/lib/questdb/conf/server.conf", ReadOnly: true, Type: mount.TypeBind},
 				mount.Mount{Source: path.Join(cwd, keysPath), Target: "/var/lib/questdb/conf/keys", ReadOnly: true, Type: mount.TypeBind})
 		},
-		Image: fmt.Sprintf("questdb/questdb:%s", questDbVersion),
-		Resources: container.Resources{
-			Ulimits: []*units.Ulimit{
-				{
-					Name: "nofile",
-					Hard: 262144,
-					Soft: 262144,
-				},
-			},
-		},
+		Image:      fmt.Sprintf("%s:%s", questDbName, questDbVersion),
 		WaitingFor: wait.ForLog("A server-main enjoy"),
 	}
 	questdbContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -122,45 +107,40 @@ func TestConnect(t *testing.T) {
 	host := getEnv("QUESTDB_HOST", "localhost")
 	username := getEnv("QUESTDB_USERNAME", "admin")
 	password := getEnv("QUESTDB_PASSWORD", "quest")
-	tlsMode := getEnv("QUESTDB_SSL", "disable")
-	queryTimeoutNumber := 3600
-	queryTimeoutString := "3600"
+	tlsEnabled := getEnv("QUESTDB_TLS_ENABLED", "false")
+	queryTimeout := 3600
+	connectTimeout := 1000
+	maxOpenConns := 10
+	maxIdleConns := 5
+	maxConnLife := 14400
+
 	questdb := plugin.QuestDB{}
-	t.Run("should not error when valid settings passed", func(t *testing.T) {
-		secure := map[string]string{}
-		secure["password"] = password
-		settings := backend.DataSourceInstanceSettings{JSONData: []byte(fmt.Sprintf(`{ "server": "%s", "port": %s, "username": "%s", "queryTimeout": "%s", "tlsMode": "%s"}`,
-			host, port, username, queryTimeoutString, tlsMode)), DecryptedSecureJSONData: secure}
-		_, err := questdb.Connect(settings, json.RawMessage{})
-		assert.Equal(t, nil, err)
-	})
-	t.Run("should not error when valid settings passed - with query timeout as number", func(t *testing.T) {
-		secure := map[string]string{}
-		secure["password"] = password
-		settings := backend.DataSourceInstanceSettings{JSONData: []byte(fmt.Sprintf(`{ "server": "%s", "port": %s, "username": "%s", "queryTimeout": %d, "tlsMode": "%s"}`,
-			host, port, username, queryTimeoutNumber, tlsMode)), DecryptedSecureJSONData: secure}
-		_, err := questdb.Connect(settings, json.RawMessage{})
-		assert.Equal(t, nil, err)
-	})
+
+	var tlsModes []string
+	if tlsEnabled == "true" {
+		tlsModes = []string{"require", "verify-ca", "verify-full"}
+	} else {
+		tlsModes = []string{"disable"}
+	}
+
+	for _, tlsMode := range tlsModes {
+		t.Run("should not error when valid settings passed, tlsMode: "+tlsMode, func(t *testing.T) {
+			secure := map[string]string{}
+			secure["password"] = password
+			settings := backend.DataSourceInstanceSettings{JSONData: []byte(fmt.Sprintf(
+				`{ "server": "%s", "port": %s, "username": "%s", "tlsMode": "%s", "queryTimeout": "%d", "timeout": "%d", "maxOpenConnections": "%d", "maxIdleConnections": "%d", "maxConnectionLifetime": "%d" }`,
+				host, port, username, tlsMode, queryTimeout, connectTimeout, maxOpenConns, maxIdleConns, maxConnLife)), DecryptedSecureJSONData: secure}
+
+			db, err := questdb.Connect(settings, json.RawMessage{})
+			assert.Equal(t, nil, err)
+
+			err = db.Ping()
+			assert.Equal(t, nil, err)
+		})
+	}
 }
 
-func TestPgWireConnect(t *testing.T) {
-	port := getEnv("QUESTDB_PORT", "8812")
-	host := getEnv("QUESTDB_HOST", "localhost")
-	username := getEnv("QUESTDB_USERNAME", "admin")
-	password := getEnv("QUESTDB_PASSWORD", "quest")
-	tlsMode := getEnv("QUESTDB_SSL", "disable")
-	questdb := plugin.QuestDB{}
-	t.Run("should not error when valid settings passed", func(t *testing.T) {
-		secure := map[string]string{}
-		secure["password"] = password
-		settings := backend.DataSourceInstanceSettings{JSONData: []byte(fmt.Sprintf(`{ "server": "%s", "port": %s, "username": "%s", "password": "%s", "tlsMode": "%s"}`, host, port, username, password, tlsMode)), DecryptedSecureJSONData: secure}
-		_, err := questdb.Connect(settings, json.RawMessage{})
-		assert.Equal(t, nil, err)
-	})
-}
-
-func setupConnection(t *testing.T, settings *plugin.Settings) *sql.DB {
+func setupConnection(t *testing.T) *sql.DB {
 	port, err := strconv.ParseInt(getEnv("QUESTDB_PORT", "8812"), 10, 64)
 	if err != nil {
 		panic(err)
@@ -169,34 +149,26 @@ func setupConnection(t *testing.T, settings *plugin.Settings) *sql.DB {
 	host := getEnv("QUESTDB_HOST", "localhost")
 	username := getEnv("QUESTDB_USERNAME", "admin")
 	password := getEnv("QUESTDB_PASSWORD", "quest")
-	tlsMode := getEnv("QUESTDB_SSL", "disable")
+	tlsEnabled := getEnv("QUESTDB_TLS_ENABLED", "false")
 	tlsConfigurationMethod := getEnv("QUESTDB_METHOD", "file-content")
-	tlsCaCert := getEnv("QUESTDB_CA_CERT", `
------BEGIN CERTIFICATE-----
-MIIDHDCCAgSgAwIBAgIUJ0QbXYlE2EEuBtlURPgDc5Z9QaowDQYJKoZIhvcNAQEL
-BQAwEzERMA8GA1UEAwwIcWRiX3Jvb3QwHhcNMjQwMjIwMTI1NTIwWhcNMzQwMjE3
-MTI1NTIwWjATMREwDwYDVQQDDAhxZGJfcm9vdDCCASIwDQYJKoZIhvcNAQEBBQAD
-ggEPADCCAQoCggEBALP08uf35zioPW+p1MsLwtAPuMAgUfRDF/G9IbSAIIMJ65v4
-GVS6NXCf7qJmoLdfL+h/+DHhfscONs7o3Rzdj5ZNwGpJ3zvaxI7AGQwyvGxmLrq4
-+UiQTWaP8ivTJGLAReRlfznjpouwJFluhp03rPtj5h6kYsiFbBWvHKf+KbUDotI8
-xnGshba+IGJNR+jC1zto3vVkrzcL+D52HVG9nczCiRNtLa8lhsRmVR8YUSitn3ly
-9xE75XlC7AxatI/011bSpDIDka2+Au8vLcZDk8q+i6/vkYK0FUdSL5WmvtfOspnP
-5M5AQEGLQvrhYV1ojRlgLo/rJX02+2baEwQzxDECAwEAAaNoMGYwHQYDVR0OBBYE
-FG5kKRTI/Oz/kGF22WZNw9UcOb1xMB8GA1UdIwQYMBaAFG5kKRTI/Oz/kGF22WZN
-w9UcOb1xMA8GA1UdEwEB/wQFMAMBAf8wEwYDVR0RBAwwCoIIcWRiX3Jvb3QwDQYJ
-KoZIhvcNAQELBQADggEBADR6VnCB3iB6Mr5S8MvuDlwdANkT0Gmm7rvJi/4mOj0A
-5hd4S39684RrzzNyakb0aEEuDdzlbJ6EC7rorks37vMNmUAa7LrFESBHPcPnmDcq
-rjW8amE17P5QTtJiEKiIRG8xD8grCK2MF61I285BY4pbqE+oNeQw33Y73SfQZHjV
-5ZCQpdxYur3Z5BFFBqFowimrRBb/HpMd/9P+/jFNxeYXQWuzjt5cEcQtdx2ca/Ix
-hbpD1K0Asm0IA2AoiC+5F9zmp6+f4UtHFKU6PeDBQVLQyzjiIb4tF1ZX9M4LrdW+
-TIFr7kfJsOwa+y1x3aTs/7VSwNjfS4FqbvXy3S7OAOs=
------END CERTIFICATE-----
-`)
 
-	pool := x509.NewCertPool()
-	pool.AppendCertsFromPEM([]byte(tlsCaCert))
+	cwd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
 
-	// we create a direct connection since we need specific settings for insert
+	tlsCaCert, err := os.ReadFile(path.Join(cwd, "../../keys/my-own-ca.crt"))
+	if err != nil {
+		panic(err)
+	}
+
+	var tlsMode string
+	if tlsEnabled == "true" {
+		tlsMode = "verify-full"
+	} else {
+		tlsMode = "disable"
+	}
+
 	cnnstr, err := plugin.GenerateConnectionString(plugin.Settings{
 		Server:              host,
 		Port:                port,
@@ -204,7 +176,7 @@ TIFr7kfJsOwa+y1x3aTs/7VSwNjfS4FqbvXy3S7OAOs=
 		Password:            password,
 		TlsMode:             tlsMode,
 		ConfigurationMethod: tlsConfigurationMethod,
-		TlsCACert:           tlsCaCert,
+		TlsCACert:           string(tlsCaCert),
 	}, "version")
 	if err != nil {
 		panic(err)
@@ -216,7 +188,7 @@ TIFr7kfJsOwa+y1x3aTs/7VSwNjfS4FqbvXy3S7OAOs=
 }
 
 func TestInsertAndQueryData(t *testing.T) {
-	conn := setupConnection(t, nil)
+	conn := setupConnection(t)
 
 	_, err := conn.Exec("DROP TABLE IF EXISTS all_types")
 	require.NoError(t, err)

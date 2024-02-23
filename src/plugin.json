@@ -23,11 +23,11 @@
     "links": [
       {
         "name": "Website",
-        "url": "https://github.com/questdb/grafana-datasource"
+        "url": "https://github.com/questdb/grafana-questdb-datasource"
       },
       {
         "name": "License",
-        "url": "https://github.com/questdb/grafana-datasource/blob/master/LICENSE"
+        "url": "https://github.com/questdb/grafana-questdb-datasource/blob/master/LICENSE"
       }
     ],
     "screenshots": [],

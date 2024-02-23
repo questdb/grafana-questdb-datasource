@@ -114,7 +114,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
     <>
       <DataSourceDescription
         dataSourceName="QuestDB"
-        docsLink="https://grafana.com/grafana/plugins/grafana-questdb-datasource/"
+        docsLink="https://github.com/questdb/grafana-questdb-datasource/"
         hasRequiredFields
       />
       <Divider />

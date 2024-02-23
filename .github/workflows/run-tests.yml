@@ -1,0 +1,111 @@
+name: Test and package plugin
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  # build may start failing due to questdb change
+  schedule:
+    - cron: '0 9 1 * *'
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        questdb_version:
+          - latest
+          #- nightly
+        questdb_name:
+          - 'questdb/questdb'
+        # - 'questdb/enterprise'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup packages
+        id: setup-packages
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y zip zstd jq git
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4.0.2
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install yarn dependencies
+        run: yarn install
+        env:
+          NODE_OPTIONS: '--max_old_space_size=4096'
+
+      - name: Build Frontend
+        run: yarn build
+        env:
+          NODE_OPTIONS: '--max_old_space_size=4096'
+
+      - name: Compatibility check
+        uses: grafana/plugin-actions/is-compatible@v1
+        with:
+          module: './src/module.ts'
+          comment-pr: 'yes'
+          skip-comment-if-compatible: 'yes'
+          fail-if-incompatible: 'no'
+          targets: '@grafana/data,@grafana/ui,@grafana/runtime,@grafana/e2e-selectors'
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build backend
+        run: go build -v ./...
+
+      - name: Run backend tests
+        run: QUESTDB_NAME=${{ matrix.questdb_name }} QUESTDB_VERSION=${{ matrix.questdb_version }} go test -v ./...
+
+      - name: Build all backends
+        uses: magefile/mage-action@v3
+        with:
+          version: latest
+          args: -v buildAll
+
+
+      - name: Get plugin metadata
+        id: metadata
+        run: |
+          sudo apt-get install jq
+          
+          export GRAFANA_PLUGIN_ID=$(cat dist/plugin.json | jq -r .id)
+          export GRAFANA_PLUGIN_VERSION=$(cat dist/plugin.json | jq -r .info.version)
+          export GRAFANA_PLUGIN_TYPE=$(cat dist/plugin.json | jq -r .type)
+          export GRAFANA_PLUGIN_ARTIFACT=${GRAFANA_PLUGIN_ID}-${GRAFANA_PLUGIN_VERSION}.zip
+          export GRAFANA_PLUGIN_ARTIFACT_SHA1SUM=${GRAFANA_PLUGIN_ARTIFACT}.sha1
+          
+          echo "plugin-id=${GRAFANA_PLUGIN_ID}" >> $GITHUB_OUTPUT
+          echo "plugin-version=${GRAFANA_PLUGIN_VERSION}" >> $GITHUB_OUTPUT
+          echo "plugin-type=${GRAFANA_PLUGIN_TYPE}" >> $GITHUB_OUTPUT
+          echo "archive=${GRAFANA_PLUGIN_ARTIFACT}" >> $GITHUB_OUTPUT
+          echo "archive-sha1sum=${GRAFANA_PLUGIN_ARTIFACT_SHA1SUM}" >> $GITHUB_OUTPUT
+          
+          echo "github-tag=${GITHUB_REF#refs/*/}" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Package plugin
+        id: package-plugin
+        run: |
+          mv dist ${{ steps.metadata.outputs.plugin-id }}
+          zip ${{ steps.metadata.outputs.archive }} ${{ steps.metadata.outputs.plugin-id }} -r
+          sha1sum ${{ steps.metadata.outputs.archive }} | cut -f1 -d' ' > ${{ steps.metadata.outputs.archive-sha1sum }}
+        shell: bash
+
+      - name: Archive plugin build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: grafana-questdb-datasource.zip
+          path: ${{ steps.metadata.outputs.archive }}
+          retention-days: 7

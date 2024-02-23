@@ -18,10 +18,10 @@ func TestLoadSettings(t *testing.T) {
 			config backend.DataSourceInstanceSettings
 		}
 		tests := []struct {
-			name         string
-			args         args
-			wantSettings Settings
-			wantErr      error
+			name             string
+			args             args
+			expectedSettings Settings
+			expectedErr      error
 		}{
 			{
 				name: "should parse json with tls disabled",
@@ -34,7 +34,7 @@ func TestLoadSettings(t *testing.T) {
 						DecryptedSecureJSONData: map[string]string{"password": "doe"},
 					},
 				},
-				wantSettings: Settings{
+				expectedSettings: Settings{
 					Server:                "test",
 					Port:                  8812,
 					Username:              "john",
@@ -46,7 +46,7 @@ func TestLoadSettings(t *testing.T) {
 					MaxConnectionLifetime: 14400,
 					TlsMode:               "disable",
 				},
-				wantErr: nil,
+				expectedErr: nil,
 			},
 			{
 				name: "should parse json with tls and file-content mode",
@@ -59,7 +59,7 @@ func TestLoadSettings(t *testing.T) {
 						DecryptedSecureJSONData: map[string]string{"password": "doe", "tlsCACert": "caCert", "tlsClientCert": "clientCert", "tlsClientKey": "clientKey", "secureSocksProxyPassword": "test"},
 					},
 				},
-				wantSettings: Settings{
+				expectedSettings: Settings{
 					Server:                "test",
 					Port:                  1000,
 					Username:              "john",
@@ -86,7 +86,7 @@ func TestLoadSettings(t *testing.T) {
 						},
 					},
 				},
-				wantErr: nil,
+				expectedErr: nil,
 			},
 			{
 				name: "should parse json with tls and file-path mode",
@@ -100,7 +100,7 @@ func TestLoadSettings(t *testing.T) {
 						DecryptedSecureJSONData: map[string]string{"password": "rambo", "secureSocksProxyPassword": "test"},
 					},
 				},
-				wantSettings: Settings{
+				expectedSettings: Settings{
 					Server:                "test",
 					Port:                  8812,
 					Username:              "john",
@@ -127,7 +127,7 @@ func TestLoadSettings(t *testing.T) {
 						},
 					},
 				},
-				wantErr: nil,
+				expectedErr: nil,
 			},
 			{
 				name: "should converting string values to the correct type",
@@ -137,7 +137,7 @@ func TestLoadSettings(t *testing.T) {
 						DecryptedSecureJSONData: map[string]string{"password": "p"},
 					},
 				},
-				wantSettings: Settings{
+				expectedSettings: Settings{
 					Server:                "test",
 					Port:                  1234,
 					Username:              "u",
@@ -149,15 +149,15 @@ func TestLoadSettings(t *testing.T) {
 					MaxConnectionLifetime: 3600,
 					ProxyOptions:          nil,
 				},
-				wantErr: nil,
+				expectedErr: nil,
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				gotSettings, err := LoadSettings(tt.args.config)
-				assert.Equal(t, tt.wantErr, err)
-				if !reflect.DeepEqual(gotSettings, tt.wantSettings) {
-					t.Errorf("LoadSettings() = %v, want %v", gotSettings, tt.wantSettings)
+				assert.Equal(t, tt.expectedErr, err)
+				if !reflect.DeepEqual(gotSettings, tt.expectedSettings) {
+					t.Errorf("LoadSettings() = %v, want %v", gotSettings, tt.expectedSettings)
 				}
 			})
 		}
