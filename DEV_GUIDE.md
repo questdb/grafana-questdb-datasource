@@ -41,7 +41,7 @@ docker run -d -p 8812:8812 -p 9000:9000 --name secure-questdb-server --ulimit no
 
 ### Now start the container using the config-secure settings
 
-docker run -d -p 9000:9000 -p 8812:8812 --name secure-questdb-server --ulimit nofile=262144:262144 -v $PWD/config-secure/keys:/var/lib/questdb/conf/keys -v $PWD/config-secure/server.conf:/var/lib/questdb/conf/server.conf questdb/questdb-enterprise
+docker run -d -p 9000:9000 -p 8812:8812 --name secure-questdb-server --ulimit nofile=262144:262144 -v $PWD/keys:/var/lib/questdb/conf/keys -v $PWD/config-secure/server.conf:/var/lib/questdb/conf/server.conf questdb/questdb-enterprise
 
 ### Login to the container and add the ca cert to trusted certs
 

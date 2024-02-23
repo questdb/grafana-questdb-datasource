@@ -46,7 +46,6 @@ func getClientVersion(ctx context.Context) string {
 	return result
 }
 
-// Connect opens a sql.DB connection using datasource settings
 func (h *QuestDB) Connect(config backend.DataSourceInstanceSettings, message json.RawMessage) (*sql.DB, error) {
 	settings, err := LoadSettings(config)
 	if err != nil {
