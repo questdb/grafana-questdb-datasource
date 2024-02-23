@@ -2,7 +2,6 @@ package plugin_test
 
 import (
 	"context"
-	"crypto/x509"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -152,30 +151,16 @@ func setupConnection(t *testing.T) *sql.DB {
 	password := getEnv("QUESTDB_PASSWORD", "quest")
 	tlsEnabled := getEnv("QUESTDB_TLS_ENABLED", "false")
 	tlsConfigurationMethod := getEnv("QUESTDB_METHOD", "file-content")
-	tlsCaCert := getEnv("QUESTDB_CA_CERT", `
------BEGIN CERTIFICATE-----
-MIIDHDCCAgSgAwIBAgIUJ0QbXYlE2EEuBtlURPgDc5Z9QaowDQYJKoZIhvcNAQEL
-BQAwEzERMA8GA1UEAwwIcWRiX3Jvb3QwHhcNMjQwMjIwMTI1NTIwWhcNMzQwMjE3
-MTI1NTIwWjATMREwDwYDVQQDDAhxZGJfcm9vdDCCASIwDQYJKoZIhvcNAQEBBQAD
-ggEPADCCAQoCggEBALP08uf35zioPW+p1MsLwtAPuMAgUfRDF/G9IbSAIIMJ65v4
-GVS6NXCf7qJmoLdfL+h/+DHhfscONs7o3Rzdj5ZNwGpJ3zvaxI7AGQwyvGxmLrq4
-+UiQTWaP8ivTJGLAReRlfznjpouwJFluhp03rPtj5h6kYsiFbBWvHKf+KbUDotI8
-xnGshba+IGJNR+jC1zto3vVkrzcL+D52HVG9nczCiRNtLa8lhsRmVR8YUSitn3ly
-9xE75XlC7AxatI/011bSpDIDka2+Au8vLcZDk8q+i6/vkYK0FUdSL5WmvtfOspnP
-5M5AQEGLQvrhYV1ojRlgLo/rJX02+2baEwQzxDECAwEAAaNoMGYwHQYDVR0OBBYE
-FG5kKRTI/Oz/kGF22WZNw9UcOb1xMB8GA1UdIwQYMBaAFG5kKRTI/Oz/kGF22WZN
-w9UcOb1xMA8GA1UdEwEB/wQFMAMBAf8wEwYDVR0RBAwwCoIIcWRiX3Jvb3QwDQYJ
-KoZIhvcNAQELBQADggEBADR6VnCB3iB6Mr5S8MvuDlwdANkT0Gmm7rvJi/4mOj0A
-5hd4S39684RrzzNyakb0aEEuDdzlbJ6EC7rorks37vMNmUAa7LrFESBHPcPnmDcq
-rjW8amE17P5QTtJiEKiIRG8xD8grCK2MF61I285BY4pbqE+oNeQw33Y73SfQZHjV
-5ZCQpdxYur3Z5BFFBqFowimrRBb/HpMd/9P+/jFNxeYXQWuzjt5cEcQtdx2ca/Ix
-hbpD1K0Asm0IA2AoiC+5F9zmp6+f4UtHFKU6PeDBQVLQyzjiIb4tF1ZX9M4LrdW+
-TIFr7kfJsOwa+y1x3aTs/7VSwNjfS4FqbvXy3S7OAOs=
------END CERTIFICATE-----
-`)
 
-	pool := x509.NewCertPool()
-	pool.AppendCertsFromPEM([]byte(tlsCaCert))
+	cwd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+
+	tlsCaCert, err := os.ReadFile(path.Join(cwd, "../../keys/my-own-ca.crt"))
+	if err != nil {
+		panic(err)
+	}
 
 	var tlsMode string
 	if tlsEnabled == "true" {
@@ -191,7 +176,7 @@ TIFr7kfJsOwa+y1x3aTs/7VSwNjfS4FqbvXy3S7OAOs=
 		Password:            password,
 		TlsMode:             tlsMode,
 		ConfigurationMethod: tlsConfigurationMethod,
-		TlsCACert:           tlsCaCert,
+		TlsCACert:           string(tlsCaCert),
 	}, "version")
 	if err != nil {
 		panic(err)
