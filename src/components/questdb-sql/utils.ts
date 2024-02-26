@@ -1,8 +1,3 @@
-//import { editor/*, IPosition, IRange*/ } from "monaco-editor"
-//import { Monaco } from "@monaco-editor/react"
-
-//type IStandaloneCodeEditor = editor.IStandaloneCodeEditor
-
 export const uniq = <T = unknown>(list: T[]) => Array.from(new Set(list))
 
 // monaco.languages.CompletionItemKind

@@ -1,5 +1,4 @@
 import {getTemplateSrv} from "@grafana/runtime";
-//import {IRange, languages} from "monaco-editor";
 import {Range, CompletionKind} from "./utils";
 
 const macros = [

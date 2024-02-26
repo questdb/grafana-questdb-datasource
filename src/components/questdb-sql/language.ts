@@ -1,7 +1,6 @@
 declare const monaco: any;
 
 import { operators } from "./operators"
-//import * as monaco from "monaco-editor"
 import { dataTypes, functions, keywords } from "@questdb/sql-grammar"
 
 export const language/*: monaco.languages.IMonarchLanguage*/ = {

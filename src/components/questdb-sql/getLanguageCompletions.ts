@@ -1,4 +1,3 @@
-//import { IRange, languages } from "monaco-editor"
 import { operators } from "./operators"
 import { dataTypes, functions, keywords } from "@questdb/sql-grammar"
 import {CompletionKind, Range} from "./utils";

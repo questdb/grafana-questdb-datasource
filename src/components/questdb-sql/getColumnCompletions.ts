@@ -1,6 +1,5 @@
 import {CompletionKind, Range, uniq} from "./utils"
 import { CompletionItemPriority, InformationSchemaColumn } from "./types"
-//import { IRange, languages } from "monaco-editor"
 
 export const getColumnCompletions = ({
   columns,
