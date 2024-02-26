@@ -54,16 +54,19 @@ datasources:
   - name: QuestDB
     type: grafana-questdb-datasource
     jsonData:
-      port: 8812
       server: localhost
-      username: username
-      tlsMode: require
-      # tlsConfigurationMethod: file-path | file-content 
+      port: 8812
+      username: admin
+      tlsMode: disable
+      # tlsConfigurationMethod: file-path | file-content
+      # tlsCACertFile: <string>
       # timeout: <seconds>
       # queryTimeout: <seconds>
-      # tlsCACertFile: <string>
+      maxOpenConnections: 100
+      maxIdleConnections: 100
+      maxConnectionLifetime: 14400
     secureJsonData:
-      password: password
+      password: quest
       # tlsCACert: <string>
 ```
 

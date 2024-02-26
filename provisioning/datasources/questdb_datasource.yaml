@@ -1,0 +1,19 @@
+apiVersion: 1
+datasources:
+  - name: QuestDB-test
+    type: grafana-questdb-datasource
+    jsonData:
+      server: grafana-questdb-server
+      port: 8812
+      username: admin
+      tlsMode: disable
+      # tlsConfigurationMethod: file-path | file-content
+      # tlsCACertFile: <string>
+      # timeout: <seconds>
+      # queryTimeout: <seconds>
+      maxOpenConnections: 100
+      maxIdleConnections: 100
+      maxConnectionLifetime: 14400
+    secureJsonData:
+      password: quest
+      # tlsCACert: <string>
