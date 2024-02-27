@@ -244,13 +244,9 @@ func (h *QuestDB) MutateQuery(ctx context.Context, req backend.DataQuery) (conte
 	if err := json.Unmarshal(req.JSON, &dataQuery); err != nil {
 		return ctx, req
 	}
-
 	if dataQuery.Meta.TimeZone == "" {
 		return ctx, req
 	}
-
-	//loc, _ := time.LoadLocation(dataQuery.Meta.TimeZone)
-	//return clickhouse.Context(ctx, clickhouse.WithUserLocation(loc)), req
 	return ctx, req
 }
 
