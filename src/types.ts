@@ -119,10 +119,10 @@ export interface SqlBuilderOptionsList {
   table?: string;
   fields?: string[];
   filters?: Filter[];
+  partitionBy?: string[]
   orderBy?: OrderBy[];
   limit?: string;
   timeField: string;
-  partitionBy?: string[]
 }
 export enum BuilderMetricFieldAggregation {
   Sum = 'sum',
