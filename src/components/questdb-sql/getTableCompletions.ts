@@ -1,6 +1,5 @@
 import {Range, CompletionKind, Table} from "./utils"
 import { CompletionItemPriority } from "./types"
-//import { /*IRange,*/ languages } from "monaco-editor"
 
 export const getTableCompletions = ({
   tables,

@@ -43,7 +43,7 @@ func TimeFilter(query *sqlds.Query, args []string) (string, error) {
 		to     = query.TimeRange.To.UTC().UnixMicro()
 	)
 
-	return fmt.Sprintf("%s >= %d AND %s <= %d", column, from, column, to), nil
+	return fmt.Sprintf("%s >= cast(%d as timestamp) AND %s <= cast(%d as timestamp)", column, from, column, to), nil
 }
 
 func SampleByInterval(query *sqlds.Query, args []string) (string, error) {

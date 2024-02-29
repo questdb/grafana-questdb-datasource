@@ -1,9 +1,3 @@
-/*import * as monaco from "monaco-editor"
-import {editor, Position, Range} from "monaco-editor"
-import IStandaloneCodeEditor = editor.IStandaloneCodeEditor*/
-//import {CompletionList, ProviderResult} from "monaco-editor";
-//import {CompletionItem} from "monaco-editor";
-
 import { CompletionItemPriority, InformationSchemaColumn } from "./types"
 import { findMatches , getQueryFromCursor, Table, uniq } from "./utils"
 import { getTableCompletions } from "./getTableCompletions"

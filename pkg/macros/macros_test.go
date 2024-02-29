@@ -129,12 +129,16 @@ func TestInterpolate(t *testing.T) {
 	tests := []test{
 		{input: "select * from tab where tstmp >= $__fromTime ", output: "select * from tab where tstmp >= cast(1705754096789000 as timestamp) "},
 		{input: "select * from tab where tstmp < $__toTime ", output: "select * from tab where tstmp < cast(1707559262123000 as timestamp) "},
-		{input: "select * from tab where ( tstmp >= $__fromTime and tstmp <= $__toTime )", output: "select * from tab where ( tstmp >= cast(1705754096789000 as timestamp) and tstmp <= cast(1707559262123000 as timestamp) )"},
-		{input: "select * from tab where ( tstmp >= $__fromTime ) and ( tstmp <= $__toTime )", output: "select * from tab where ( tstmp >= cast(1705754096789000 as timestamp) ) and ( tstmp <= cast(1707559262123000 as timestamp) )"},
-		{input: "select * from tab where $__timeFilter(tstmp)", output: "select * from tab where tstmp >= 1705754096789000 AND tstmp <= 1707559262123000"},
-		{input: "select * from tab where $__timeFilter( tstmp )", output: "select * from tab where tstmp >= 1705754096789000 AND tstmp <= 1707559262123000"},
-		{input: "select * from tab where $__timeFilter( tstmp ) sample by $__sampleByInterval", output: "select * from tab where tstmp >= 1705754096789000 AND tstmp <= 1707559262123000 sample by 30s", duration: time.Duration(30000000000)},
-		{input: "select * from tab where $__timeFilter( tstmp ) sample by $__sampleByInterval", output: "select * from tab where tstmp >= 1705754096789000 AND tstmp <= 1707559262123000 sample by 1T", duration: time.Duration(1000000)},
+		{input: "select * from tab where ( tstmp >= $__fromTime and tstmp <= $__toTime )",
+			output: "select * from tab where ( tstmp >= cast(1705754096789000 as timestamp) and tstmp <= cast(1707559262123000 as timestamp) )"},
+		{input: "select * from tab where ( tstmp >= $__fromTime ) and ( tstmp <= $__toTime )",
+			output: "select * from tab where ( tstmp >= cast(1705754096789000 as timestamp) ) and ( tstmp <= cast(1707559262123000 as timestamp) )"},
+		{input: "select * from tab where $__timeFilter(tstmp)", output: "select * from tab where tstmp >= cast(1705754096789000 as timestamp) AND tstmp <= cast(1707559262123000 as timestamp)"},
+		{input: "select * from tab where $__timeFilter( tstmp )", output: "select * from tab where tstmp >= cast(1705754096789000 as timestamp) AND tstmp <= cast(1707559262123000 as timestamp)"},
+		{input: "select * from tab where $__timeFilter( tstmp ) sample by $__sampleByInterval",
+			output: "select * from tab where tstmp >= cast(1705754096789000 as timestamp) AND tstmp <= cast(1707559262123000 as timestamp) sample by 30s", duration: time.Duration(30000000000)},
+		{input: "select * from tab where $__timeFilter( tstmp ) sample by $__sampleByInterval",
+			output: "select * from tab where tstmp >= cast(1705754096789000 as timestamp) AND tstmp <= cast(1707559262123000 as timestamp) sample by 1T", duration: time.Duration(1000000)},
 	}
 
 	for i, tc := range tests {

@@ -157,7 +157,7 @@ export class Datasource
     return view.map((item) => ({
       tableName: item[0],
       partitionBy: item[1],
-      designatedTimestamp: item[2],
+      designatedTimestamp: item[2] === null ? "" : item[2],
       walEnabled: item[3],
       dedup: item[4]
     }));

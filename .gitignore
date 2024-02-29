@@ -24,14 +24,11 @@ dist/
 artifacts/
 work/
 ci/
-e2e-results/
 
 # Editor
 .idea
 
 pkg/__debug_bin
-
-provisioning
 
 **/.DS_Store
 .eslintcache
