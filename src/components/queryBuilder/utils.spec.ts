@@ -1,5 +1,59 @@
-import {BuilderMetricFieldAggregation, BuilderMode, FilterOperator, OrderByDirection} from 'types';
+import {
+    BuilderMetricFieldAggregation,
+    BuilderMode,
+    FilterOperator, FullField,
+    OrderByDirection,
+    SampleByAlignToMode
+} from 'types';
 import {getQueryOptionsFromSql, getSQLFromQueryOptions, isDateType, isNumberType, isTimestampType} from './utils';
+import {Datasource} from "../../data/QuestDbDatasource";
+import {PluginType} from "@grafana/data";
+
+let mockTimeField = "";
+
+const mockDatasource = new Datasource({
+    id: 1,
+    uid: 'questdb_ds',
+    type: 'grafana-questdb-datasource',
+    name: 'QuestDB',
+    jsonData: {
+        server: 'foo.com',
+        port: 443,
+        username: 'user'
+    },
+    readOnly: true,
+    access: 'direct',
+    meta: {
+        id: 'grafana-questdb-datasource',
+        name: 'QuestDB',
+        type: PluginType.datasource,
+        module: '',
+        baseUrl: '',
+        info: {
+            description: '',
+            screenshots: [],
+            updated: '',
+            version: '',
+            logos: {
+                small: '',
+                large: '',
+            },
+            author: {
+                name: '',
+            },
+            links: [],
+        },
+    },
+});
+
+
+mockDatasource.fetchFields = async function(table: string): Promise<FullField[]> {
+    if (mockTimeField.length > 0){
+        return [{name:mockTimeField, label:mockTimeField, designated: true, type: "timestamp", picklistValues: []}];
+    } else {
+        return [];
+    }
+};
 
 describe('isDateType', () => {
   it('returns true for Date type', () => {
@@ -50,114 +104,124 @@ describe('isNumberType', () => {
 });
 
 describe('Utils: getSQLFromQueryOptions and getQueryOptionsFromSql', () => {
-  testCondition('handles a table without a database', 'SELECT "name" FROM "foo"', {
+  it( 'handles a table without a database', test( 'SELECT name FROM "tab"', {
     mode: BuilderMode.List,
-    table: 'foo',
+    table: 'tab',
     fields: ['name'],
-  });
+    timeField: "",
+  }));
 
-  testCondition('handles a table with a dot', 'SELECT "name" FROM "foo.bar"', {
+  it('handles a table with a dot', test( 'SELECT name FROM "foo.bar"', {
     mode: BuilderMode.List,
     table: 'foo.bar',
     fields: ['name'],
-  });
+    timeField: "",
+  }));
 
-  testCondition('handles 2 fields', 'SELECT "field1", "field2" FROM "foo"', {
+  it( 'handles 2 fields', test( 'SELECT field1, field2 FROM "tab"', {
     mode: BuilderMode.List,
-    table: 'foo',
+    table: 'tab',
     fields: ['field1', 'field2'],
-  });
+    timeField: "",
+  }));
 
-  testCondition('handles a limit wih upper bound', 'SELECT "field1", "field2" FROM "foo" LIMIT 20', {
+  it( 'handles a limit wih upper bound', test( 'SELECT field1, field2 FROM "tab" LIMIT 20', {
     mode: BuilderMode.List,
-    table: 'foo',
+    table: 'tab',
     fields: ['field1', 'field2'],
     limit: '20',
-  });
+    timeField: "",
+  }));
 
-  testCondition('handles a limit with lower and upper bound', 'SELECT "field1", "field2" FROM "foo" LIMIT 10, 20', {
+  it( 'handles a limit with lower and upper bound', test( 'SELECT field1, field2 FROM "tab" LIMIT 10, 20', {
       mode: BuilderMode.List,
-      table: 'foo',
+      table: 'tab',
       fields: ['field1', 'field2'],
       limit: '10, 20',
-  });
+      timeField: "",
+  }));
 
-  testCondition( 'handles empty orderBy array',
-    'SELECT "field1", "field2" FROM "foo" LIMIT 20',
+  it( 'handles empty orderBy array', test(
+    'SELECT field1, field2 FROM "tab" LIMIT 20',
     {
       mode: BuilderMode.List,
-      table: 'foo',
+      table: 'tab',
       fields: ['field1', 'field2'],
       orderBy: [],
       limit: 20,
+      timeField: "",
     },
     false
-  );
+  ));
 
-  testCondition('handles order by', 'SELECT "field1", "field2" FROM "foo" ORDER BY field1 ASC LIMIT 20', {
+  it( 'handles order by', test( 'SELECT field1, field2 FROM "tab" ORDER BY field1 ASC LIMIT 20', {
     mode: BuilderMode.List,
-    table: 'foo',
+    table: 'tab',
     fields: ['field1', 'field2'],
     orderBy: [{ name: 'field1', dir: OrderByDirection.ASC }],
     limit: '20',
-  });
+    timeField: "",
+  }));
 
-  testCondition( 'handles no select',
+  it( 'handles no select', test(
     'SELECT  FROM "tab"',
     {
       mode: BuilderMode.Aggregate,
       table: 'tab',
       fields: [],
       metrics: [],
+      timeField: "",
     },
     false
-  );
+  ));
 
-  testCondition( 'does not escape * field',
+  it( 'does not escape * field', test(
     'SELECT * FROM "tab"',
     {
       mode: BuilderMode.Aggregate,
       table: 'tab',
       fields: ['*'],
       metrics: [],
+      timeField: "",
     },
     false
-  );
+  ));
 
-  testCondition('handles aggregation function', 'SELECT sum(field1) FROM "foo"', {
+  it( 'handles aggregation function', test( 'SELECT sum(field1) FROM "tab"', {
     mode: BuilderMode.Aggregate,
-    table: 'foo',
+    table: 'tab',
     fields: [],
     metrics: [{ field: 'field1', aggregation: BuilderMetricFieldAggregation.Sum }],
-  });
+    timeField: "",
+  }));
 
-  testCondition('handles aggregation with alias', 'SELECT sum(field1) total_records FROM "foo"', {
+  it( 'handles aggregation with alias', test( 'SELECT sum(field1) total_records FROM "tab"', {
     mode: BuilderMode.Aggregate,
-    table: 'foo',
+    table: 'tab',
     fields: [],
     metrics: [{ field: 'field1', aggregation: BuilderMetricFieldAggregation.Sum, alias: 'total_records' }],
-  });
+    timeField: "",
+  }));
 
-  testCondition(
-    'handles 2 aggregations',
-    'SELECT sum(field1) total_records, count(field2) total_records2 FROM "foo"',
+  it( 'handles 2 aggregations', test(
+    'SELECT sum(field1) total_records, count(field2) total_records2 FROM "tab"',
     {
       mode: BuilderMode.Aggregate,
-      table: 'foo',
+      table: 'tab',
       fields: [],
       metrics: [
         { field: 'field1', aggregation: BuilderMetricFieldAggregation.Sum, alias: 'total_records' },
         { field: 'field2', aggregation: BuilderMetricFieldAggregation.Count, alias: 'total_records2' },
       ],
+      timeField: "",
     }
-  );
+  ));
 
-  testCondition(
-    'handles aggregation with groupBy',
-    'SELECT field3, sum(field1) total_records, count(field2) total_records2 FROM "foo" GROUP BY field3',
+  it( 'handles aggregation with groupBy', test(
+    'SELECT field3, sum(field1) total_records, count(field2) total_records2 FROM "tab" GROUP BY field3',
     {
       mode: BuilderMode.Aggregate,
-      table: 'foo',
+      table: 'tab',
       database: 'db',
       fields: [],
       metrics: [
@@ -165,31 +229,31 @@ describe('Utils: getSQLFromQueryOptions and getQueryOptionsFromSql', () => {
         { field: 'field2', aggregation: BuilderMetricFieldAggregation.Count, alias: 'total_records2' },
       ],
       groupBy: ['field3'],
+      timeField: "",
     },
     false
-  );
+  ));
 
-  testCondition(
-    'handles aggregation with groupBy with fields having group by value',
-    'SELECT field3, sum(field1) total_records, count(field2) total_records2 FROM "foo" GROUP BY field3',
+  it( 'handles aggregation with groupBy with fields having group by value', test(
+    'SELECT field3, sum(field1) total_records, count(field2) total_records2 FROM "tab" GROUP BY field3',
     {
       mode: BuilderMode.Aggregate,
-      table: 'foo',
+      table: 'tab',
       fields: ['field3'],
       metrics: [
         { field: 'field1', aggregation: BuilderMetricFieldAggregation.Sum, alias: 'total_records' },
         { field: 'field2', aggregation: BuilderMetricFieldAggregation.Count, alias: 'total_records2' },
       ],
       groupBy: ['field3'],
+      timeField: "",
     }
-  );
+  ));
 
-  testCondition(
-    'handles aggregation with group by and order by',
-    'SELECT StageName, Type, count(Id) count_of, sum(Amount) FROM "foo" GROUP BY StageName, Type ORDER BY count(Id) DESC, StageName ASC',
+  it( 'handles aggregation with group by and order by', test(
+    'SELECT StageName, Type, count(Id) count_of, sum(Amount) FROM "tab" GROUP BY StageName, Type ORDER BY count(Id) DESC, StageName ASC',
     {
       mode: BuilderMode.Aggregate,
-      table: 'foo',
+      table: 'tab',
       fields: [],
       metrics: [
         { field: 'Id', aggregation: BuilderMetricFieldAggregation.Count, alias: 'count_of' },
@@ -200,16 +264,16 @@ describe('Utils: getSQLFromQueryOptions and getQueryOptionsFromSql', () => {
         { name: 'count(Id)', dir: OrderByDirection.DESC },
         { name: 'StageName', dir: OrderByDirection.ASC },
       ],
+      timeField: "",
     },
     false
-  );
+  ));
 
-  testCondition(
-    'handles aggregation with a IN filter',
-    `SELECT count(id) FROM "foo" WHERE   ( stagename IN ('Deal Won', 'Deal Lost' ) )`,
+  it( 'handles aggregation with a IN filter', test(
+    `SELECT count(id) FROM "tab" WHERE stagename IN ('Deal Won', 'Deal Lost' )`,
     {
       mode: BuilderMode.Aggregate,
-      table: 'foo',
+      table: 'tab',
       fields: [],
       metrics: [{ field: 'id', aggregation: BuilderMetricFieldAggregation.Count }],
       filters: [
@@ -220,15 +284,15 @@ describe('Utils: getSQLFromQueryOptions and getQueryOptionsFromSql', () => {
           type: 'string',
         },
       ],
+      timeField: "",
     }
-  );
+  ));
 
-  testCondition(
-    'handles aggregation with a NOT IN filter',
-    `SELECT count(id) FROM "foo" WHERE   ( stagename NOT IN ('Deal Won', 'Deal Lost' ) )`,
+  it( 'handles aggregation with a NOT IN filter', test(
+    `SELECT count(id) FROM "tab" WHERE stagename NOT IN ('Deal Won', 'Deal Lost' )`,
     {
       mode: BuilderMode.Aggregate,
-      table: 'foo',
+      table: 'tab',
       fields: [],
       metrics: [{ field: 'id', aggregation: BuilderMetricFieldAggregation.Count }],
       filters: [
@@ -239,15 +303,29 @@ describe('Utils: getSQLFromQueryOptions and getQueryOptionsFromSql', () => {
           type: 'string',
         },
       ],
+      timeField: "",
     }
-  );
+  ));
 
-  testCondition(
-    'handles aggregation with timestamp filter',
-    `SELECT count(id) FROM "foo" WHERE   ( createdon  >= $__fromTime AND createdon <= $__toTime )`,
+  it( 'handles $__fromTime and $__toTime filters', test(
+    `SELECT id FROM "tab" WHERE tstmp > $__fromTime AND tstmp < $__toTime`,
+    {
+        mode: BuilderMode.List,
+        table: 'tab',
+        fields: ['id'],
+        filters: [
+            { key: 'tstmp', operator: '>', value: 'GRAFANA_START_TIME', type: 'timestamp', },
+            { condition: 'AND', key: 'tstmp', operator: '<', value: 'GRAFANA_END_TIME', type: 'timestamp', },
+        ],
+        timeField: "",
+    }, true
+  ));
+
+  it( 'handles aggregation with $__timeFilter', test(
+    `SELECT count(id) FROM "tab" WHERE  $__timeFilter(createdon)`,
     {
       mode: BuilderMode.Aggregate,
-      table: 'foo',
+      table: 'tab',
       fields: [],
       metrics: [{ field: 'id', aggregation: BuilderMetricFieldAggregation.Count }],
       filters: [
@@ -257,33 +335,134 @@ describe('Utils: getSQLFromQueryOptions and getQueryOptionsFromSql', () => {
           type: 'timestamp',
         },
       ],
+      timeField: "",
     }
-  );
+  ));
 
-  testCondition(
-    'handles aggregation with date filter',
-    `SELECT count(id) FROM "foo" WHERE   (  NOT ( closedate  >= $__fromTime AND closedate <= $__toTime ) )`,
+  it( 'handles aggregation with negated $__timeFilter', test(
+      `SELECT count(id) FROM "tab" WHERE NOT (  $__timeFilter(closedate) )`,
+      {
+          mode: BuilderMode.Aggregate,
+          table: 'tab',
+          fields: [],
+          metrics: [{field: 'id', aggregation: BuilderMetricFieldAggregation.Count,}],
+          filters: [
+              {
+                  key: 'closedate',
+                  operator: FilterOperator.OutsideGrafanaTimeRange,
+                  type: 'timestamp',
+              },
+          ],
+          timeField: "",
+      }
+  ));
+
+  it( 'handles latest on one column ', test(
+    'SELECT sym, value FROM "tab" LATEST ON tstmp PARTITION BY sym',
     {
-      mode: BuilderMode.Aggregate,
-      table: 'foo',
-      fields: [],
-      metrics: [{ field: 'id', aggregation: BuilderMetricFieldAggregation.Count }],
-      filters: [
-        {
-          key: 'closedate',
-          operator: FilterOperator.OutsideGrafanaTimeRange,
-          type: 'timestamp',
+        mode: BuilderMode.List,
+        table: 'tab',
+        fields: ['sym', 'value'],
+        timeField: "tstmp",
+        partitionBy: ['sym'],
+        filters: [],
         },
-      ],
-    }
-  );
+    false
+    ));
 
-  testCondition(
-    'handles timeseries function',
-    'SELECT time as time FROM "foo" WHERE $__timeFilter(time) SAMPLE BY $__sampleByInterval ORDER BY time ASC',
+    it( 'handles latest on two columns ', test(
+        'SELECT s1, s2, value FROM "tab" LATEST ON tstmp PARTITION BY s1, s2 ORDER BY time ASC',
+        {
+            mode: BuilderMode.List,
+            table: 'tab',
+            fields: ['s1', 's2', 'value'],
+            timeField: "tstmp",
+            partitionBy: ['s1', 's2'],
+            filters: [],
+            orderBy: [{name: "time", dir: "ASC"}]
+        },
+        false
+    ));
+
+  it( 'handles sample by align to calendar', test(
+    'SELECT tstmp as time,  count(*), first(str) FROM "tab" WHERE   $__timeFilter(tstmp) SAMPLE BY $__sampleByInterval FILL ( null, 10 ) ALIGN TO CALENDAR',
+    {
+        mode: BuilderMode.Trend,
+        table: 'tab',
+        fields: ['tstmp'],
+        sampleByAlignTo: SampleByAlignToMode.Calendar,
+        sampleByFill: ["null", "10"],
+        metrics: [ { field: '*', aggregation: BuilderMetricFieldAggregation.Count },
+                    { field: 'str', aggregation: BuilderMetricFieldAggregation.First },
+                  ],
+        filters: [{
+            key: 'tstmp',
+            operator: FilterOperator.WithInGrafanaTimeRange,
+            type: 'timestamp',
+         },],
+        timeField: "tstmp"
+    },
+    true, "tstmp"
+  ));
+
+  it( 'handles sample by align to calendar time zone', test(
+        'SELECT tstmp as time,  count(*), first(str) FROM "tab" WHERE $__timeFilter(tstmp) SAMPLE BY $__sampleByInterval FILL ( null, 10 ) ALIGN TO CALENDAR TIME ZONE \'EST\'',
+        {
+            mode: BuilderMode.Trend,
+            table: 'tab',
+            fields: ['time'],
+            sampleByAlignTo: SampleByAlignToMode.CalendarTimeZone,
+            sampleByAlignToValue: "EST",
+            sampleByFill: ["null", "10"],
+            metrics: [ { field: '*', aggregation: BuilderMetricFieldAggregation.Count },
+                { field: 'str', aggregation: BuilderMetricFieldAggregation.First },
+            ],
+            filters: [],
+            timeField: "tstmp"
+        },
+        false
+  ));
+
+  it( 'handles sample by align to calendar offset', test(
+    'SELECT tstmp as time,  count(*), first(str) FROM "tab" WHERE $__timeFilter(tstmp) SAMPLE BY $__sampleByInterval FILL ( null, 10 ) ALIGN TO CALENDAR WITH OFFSET \'01:00\'',
+    {
+        mode: BuilderMode.Trend,
+        table: 'tab',
+        fields: ['time'],
+        sampleByAlignTo: SampleByAlignToMode.CalendarOffset,
+        sampleByAlignToValue: "01:00",
+        sampleByFill: ["null", "10"],
+        metrics: [ { field: '*', aggregation: BuilderMetricFieldAggregation.Count },
+            { field: 'str', aggregation: BuilderMetricFieldAggregation.First },
+        ],
+        filters: [],
+        timeField: "tstmp"
+    },
+    false
+  ));
+
+  it( 'handles sample by align to first observation', test(
+        'SELECT tstmp as time,  count(*), first(str) FROM "tab" WHERE $__timeFilter(tstmp) SAMPLE BY $__sampleByInterval FILL ( null, 10 ) ALIGN TO FIRST OBSERVATION',
+        {
+            mode: BuilderMode.Trend,
+            table: 'tab',
+            fields: ['time'],
+            sampleByAlignTo: SampleByAlignToMode.FirstObservation,
+            sampleByFill: ["null", "10"],
+            metrics: [ { field: '*', aggregation: BuilderMetricFieldAggregation.Count },
+                { field: 'str', aggregation: BuilderMetricFieldAggregation.First },
+            ],
+            filters: [],
+            timeField: "tstmp"
+        },
+        false
+  ));
+
+  it( 'handles __timeFilter macro and sample by', test(
+    'SELECT time as time FROM "tab" WHERE $__timeFilter(time) SAMPLE BY $__sampleByInterval ORDER BY time ASC',
     {
       mode: BuilderMode.Trend,
-      table: 'foo',
+      table: 'tab',
       fields: [],
       timeField: 'time',
       metrics: [],
@@ -291,36 +470,125 @@ describe('Utils: getSQLFromQueryOptions and getQueryOptionsFromSql', () => {
       orderBy: [{name: "time", dir: "ASC"}]
     },
     false
-  );
+  ));
 
-  testCondition(
-    'handles timeseries function with a filter',
-    'SELECT time as time FROM "foo" WHERE $__timeFilter(time) AND   ( base IS NOT NULL ) SAMPLE BY $__sampleByInterval',
+  it( 'handles __timeFilter macro and sample by with filters', test(
+    'SELECT time as time FROM "tab" WHERE   $__timeFilter(time) AND base IS NOT NULL AND time IS NOT NULL SAMPLE BY $__sampleByInterval',
     {
       mode: BuilderMode.Trend,
-      table: 'foo',
-      fields: [],
+      table: 'tab',
+      fields: ['time'],
       timeField: 'time',
-      metrics: [],
       filters: [
-        {
-          condition: 'AND',
-          filterType: 'custom',
-          key: 'base',
-          operator: 'IS NOT NULL',
-          type: 'string',
-        },
+        { key: 'time', operator: FilterOperator.WithInGrafanaTimeRange, type: 'timestamp',},
+        { condition: 'AND', key: 'base', operator: 'IS NOT NULL'},
+        { condition: 'AND', key: 'time', operator: 'IS NOT NULL', type: 'timestamp'},
       ],
     },
-    false
-  );
+    true, "time"
+  ));
+
+  it( 'handles function filter', test(
+  'SELECT tstmp FROM "tab" WHERE tstmp > dateadd(\'M\', -1, now())',
+    {
+        mode: BuilderMode.List,
+        table: 'tab',
+        fields: ["tstmp"],
+        timeField: 'tstmp',
+        filters: [
+            {
+                key: 'tstmp',
+                operator: '>',
+                type: 'timestamp',
+                value: 'dateadd(\'M\', -1, now())'
+            },
+        ],
+    },
+    true, "tstmp"
+  ));
+
+  it( 'handles multiple function filters', test(
+    'SELECT tstmp FROM "tab" WHERE tstmp > dateadd(\'M\', -1, now()) AND tstmp = dateadd(\'M\', -1, now())',
+    {
+        mode: BuilderMode.List,
+        table: 'tab',
+        fields: ["tstmp"],
+        timeField: 'tstmp',
+        filters: [
+            { key: 'tstmp', operator: '>', type: 'timestamp', value: 'dateadd(\'M\', -1, now())' },
+            { condition: 'AND', key: 'tstmp', operator: '=', type: 'timestamp', value: 'dateadd(\'M\', -1, now())' },
+        ],
+    },
+    true, "tstmp"
+  ));
+
+  it( 'handles boolean column ref filters', test(
+    'SELECT tstmp, bool FROM "tab" WHERE bool = true AND tstmp > cast( \'2020-01-01\' as timestamp )',
+    {
+        mode: BuilderMode.List,
+        table: 'tab',
+        fields: ['tstmp', 'bool'],
+        timeField: 'tstmp',
+        filters: [
+            { key: 'bool', operator: '=', type: 'boolean', value: true },
+            { condition: 'AND', key: 'tstmp', operator: '>', type: 'timestamp', value: 'cast( \'2020-01-01\' as timestamp )' },
+        ],
+    },
+    true, "tstmp"
+  ));
+
+  it( 'handles numeric filters', test(
+    'SELECT tstmp, z FROM "tab" WHERE k = 1 AND j > 1.2',
+    {
+        mode: BuilderMode.List,
+        table: 'tab',
+        fields: ['tstmp', 'z'],
+        timeField: 'tstmp',
+        filters: [
+            { key: 'k', operator: '=', type: 'int', value: 1 },
+            { condition: 'AND', key: 'j', operator: '>', type: 'double', value: 1.2 },
+        ],
+    },
+    true, "tstmp"
+  ));
+
+  // builder doesn't support nested conditions, so we flatten them
+  it( 'flattens condition hierarchy', async () => {
+      let options = await getQueryOptionsFromSql('SELECT tstmp, z FROM "tab" WHERE k = 1 AND ( j > 1.2 OR p = \'start\' )', mockDatasource);
+      expect( options).toEqual(    {
+          mode: BuilderMode.List,
+          table: 'tab',
+          fields: ['tstmp', 'z'],
+          timeField: '',
+          filters: [
+              { key: 'k', operator: '=', type: 'int', value: 1 },
+              { condition: 'AND', key: 'j', operator: '>', type: 'double', value: 1.2 },
+              { condition: 'OR', key: 'p', operator: '=', type: 'string', value: 'start' },
+          ],
+      });
+  });
+
+  it( 'handles expressions in select list', async () => {
+    let options = await getQueryOptionsFromSql('SELECT tstmp, e::timestamp, f(x), g(a,b) FROM "tab"', mockDatasource);
+    expect( options).toEqual(    {
+        mode: BuilderMode.List,
+        table: 'tab',
+        fields: ['tstmp', 'cast(e  as timestamp)', 'f(x)', 'g(a, b)'],
+        timeField: '',
+    });
+  });
 });
 
-function testCondition(name: string, sql: string, builder: any, testQueryOptionsFromSql = true) {
-  it(name, () => {
-    expect(getSQLFromQueryOptions(builder)).toBe(sql);
-    if (testQueryOptionsFromSql) {
-      expect(getQueryOptionsFromSql(sql)).toEqual(builder);
+function test(sql: string, builder: any, testQueryOptionsFromSql = true, timeField?: string) {
+    return async () => {
+        if (timeField){
+            mockTimeField = timeField;
+        }
+        expect(getSQLFromQueryOptions(builder)).toBe(sql);
+        if (testQueryOptionsFromSql) {
+            let options = await getQueryOptionsFromSql(sql, mockDatasource);
+            expect( options).toEqual(builder);
+        }
+        mockTimeField = "";
     }
-  });
 }
