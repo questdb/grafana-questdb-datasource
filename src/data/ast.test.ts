@@ -1,5 +1,5 @@
 import { getFields, sqlToStatement } from './ast';
-import { toSql } from 'questdb-sql-ast-parser'
+import { toSql } from '@questdb/sql-ast-parser'
 
 describe('ast', () => {
   describe('getFields', () => {
