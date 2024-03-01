@@ -5,13 +5,15 @@ import { getQueryOptionsFromSql, getSQLFromQueryOptions } from './queryBuilder/u
 import { selectors } from './../selectors';
 import { QuestDBQuery, QueryType, defaultBuilderQuery, SqlBuilderOptions, QuestDBSQLQuery } from 'types';
 import { isString } from 'lodash';
+import {Datasource} from "../data/QuestDbDatasource";
 
 interface QueryTypeSwitcherProps {
   query: QuestDBQuery;
   onChange: (query: QuestDBQuery) => void;
+  datasource?: Datasource;
 }
 
-export const QueryTypeSwitcher = ({ query, onChange }: QueryTypeSwitcherProps) => {
+export const QueryTypeSwitcher = ({ query, onChange, datasource }: QueryTypeSwitcherProps) => {
   const { options: queryTypeLabels, switcher, cannotConvert } = selectors.components.QueryEditor.Types;
   let queryType: QueryType =
     query.queryType ||
@@ -24,9 +26,9 @@ export const QueryTypeSwitcher = ({ query, onChange }: QueryTypeSwitcherProps) =
     { label: queryTypeLabels.QueryBuilder, value: QueryType.Builder },
   ];
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const onQueryTypeChange = (queryType: QueryType, confirm = false) => {
+  async function onQueryTypeChange(queryType: QueryType, confirm = false) {
     if (query.queryType === QueryType.SQL && queryType === QueryType.Builder && !confirm) {
-      const queryOptionsFromSql = getQueryOptionsFromSql(query.rawSql);
+      const queryOptionsFromSql = await getQueryOptionsFromSql(query.rawSql);
       if (isString(queryOptionsFromSql)) {
         setCannotConvertModalState(true);
         setErrorMessage(queryOptionsFromSql);
@@ -41,8 +43,7 @@ export const QueryTypeSwitcher = ({ query, onChange }: QueryTypeSwitcherProps) =
           builderOptions = query.builderOptions;
           break;
         case QueryType.SQL:
-          builderOptions =
-            (getQueryOptionsFromSql(query.rawSql) as SqlBuilderOptions) || defaultBuilderQuery.builderOptions;
+          builderOptions = (await getQueryOptionsFromSql(query.rawSql, datasource) as SqlBuilderOptions) || defaultBuilderQuery.builderOptions;
           break;
         default:
           builderOptions = defaultBuilderQuery.builderOptions;
@@ -61,12 +62,12 @@ export const QueryTypeSwitcher = ({ query, onChange }: QueryTypeSwitcherProps) =
         onChange({ ...query, queryType, rawSql: getSQLFromQueryOptions(builderOptions), builderOptions });
       }
     }
-  };
-  const onConfirmQueryTypeChange = () => {
-    onQueryTypeChange(QueryType.Builder, true);
+  }
+  async function onConfirmQueryTypeChange() {
+    await onQueryTypeChange(QueryType.Builder, true);
     setConfirmModalState(false);
     setCannotConvertModalState(false);
-  };
+  }
   return (
     <>
       <RadioButtonGroup size="sm" options={options} value={editor} onChange={(e) => onQueryTypeChange(e!)} />

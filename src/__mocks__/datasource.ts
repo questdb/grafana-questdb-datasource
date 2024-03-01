@@ -1,5 +1,5 @@
 import { PluginType } from '@grafana/data';
-import { QuestDBQuery, QueryType } from '../types';
+import {QuestDBQuery, QueryType} from '../types';
 import { Datasource } from '../data/QuestDbDatasource';
 
 export const mockDatasource = new Datasource({
@@ -36,6 +36,7 @@ export const mockDatasource = new Datasource({
     },
   },
 });
+
 export const mockQuery: QuestDBQuery = {
   rawSql: 'select * from foo',
   refId: '',

@@ -87,7 +87,7 @@ export const QuestDBQueryEditor = (props: QuestDBQueryEditorProps) => {
 
   return (
     <>
-      <QueryHeader query={query} onChange={onChange} onRunQuery={onRunQuery} />
+      <QueryHeader query={query} onChange={onChange} onRunQuery={onRunQuery} datasource={props.datasource}/>
       <QuestDBEditorByType {...props} />
     </>
   );

@@ -72,6 +72,7 @@ const MetricEditor = (props: {
         onOpenMenu={() => setIsOpen(true)}
         onCloseMenu={() => setIsOpen(false)}
         onChange={onMetricFieldChange}
+        allowCustomValue={true}
         value={metric.field}
       />
       <InlineFormLabel width={2} className="query-keyword">
