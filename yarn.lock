@@ -2464,6 +2464,14 @@
   resolved "https://registry.yarnpkg.com/@popperjs/core/-/core-2.11.8.tgz#6b79032e760a0899cd4204710beede972a3a185f"
   integrity sha512-P1st0aksCrn9sGZhp8GMYwBnQsbvAWsZAX44oXNNvLHGqAOcoVxmjZiohstwQ7SqKnbR47akdNi+uleWD8+g6A==
 
+"@questdb/sql-ast-parser@0.1.1":
+  version "0.1.1"
+  resolved "https://registry.yarnpkg.com/@questdb/sql-ast-parser/-/sql-ast-parser-0.1.1.tgz#c6e7db4b9f71d988dc47119df1e09ae72cf5436c"
+  integrity sha512-4JnrBeeucBcUa00JIb0wZx7KhhZ1O9Z066ZEVeEiX9S3OcRMXGt0wxBxITs5zCgsWnWk8tVpLD5Lkn5GvCm50A==
+  dependencies:
+    moo "^0.5.1"
+    nearley "^2.19.5"
+
 "@questdb/sql-grammar@1.0.15":
   version "1.0.15"
   resolved "https://registry.yarnpkg.com/@questdb/sql-grammar/-/sql-grammar-1.0.15.tgz#a4b7ba0b8a100e29aeb33535b884b6186e17c8f2"
@@ -8961,14 +8969,6 @@ querystringify@^2.1.1:
   version "2.2.0"
   resolved "https://registry.yarnpkg.com/querystringify/-/querystringify-2.2.0.tgz#3345941b4153cb9d082d8eee4cda2016a9aef7f6"
   integrity sha512-FIqgj2EUvTa7R50u0rGsyTftzjYmv/a3hO345bZNrqabNqjtgiDMgmo4mkUjd+nzU5oF3dClKqFIPUKybUyqoQ==
-
-questdb-sql-ast-parser@1.0.3:
-  version "1.0.3"
-  resolved "https://registry.yarnpkg.com/questdb-sql-ast-parser/-/questdb-sql-ast-parser-1.0.3.tgz#59fe0fae0dbfdeec739baabb09b557441153775c"
-  integrity sha512-aNg2arBXh/N6WJOH3BR0vbD3gSGz204T83r2ouSWEF25+JpJemHL2WvZg8ZzzFCzPCqrvyFtS1lmc0E5GErTdg==
-  dependencies:
-    moo "^0.5.1"
-    nearley "^2.19.5"
 
 queue-microtask@^1.2.2:
   version "1.2.3"

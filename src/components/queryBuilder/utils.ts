@@ -10,7 +10,7 @@ import {
   ExprUnary,
   FromTable, IAstVisitor,
   SelectedColumn,
-} from 'questdb-sql-ast-parser';
+} from '@questdb/sql-ast-parser';
 import {
   BooleanFilter,
   BuilderMetricField,

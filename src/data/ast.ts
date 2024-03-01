@@ -1,4 +1,4 @@
-import { parseFirst, Statement, SelectFromStatement, astMapper, toSql, ExprRef } from 'questdb-sql-ast-parser';
+import { parseFirst, Statement, SelectFromStatement, astMapper, toSql, ExprRef } from '@questdb/sql-ast-parser';
 
 export function sqlToStatement(sql: string): Statement {
   const replaceFuncs: Array<{
