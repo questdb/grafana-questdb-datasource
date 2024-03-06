@@ -118,7 +118,7 @@ func TestConnect(t *testing.T) {
 
 	var tlsModes []string
 	if tlsEnabled == "true" {
-		tlsModes = []string{"require", "verify-ca", "verify-full"}
+		tlsModes = []string{"prefer", "require", "verify-ca", "verify-full"}
 	} else {
 		tlsModes = []string{"disable"}
 	}

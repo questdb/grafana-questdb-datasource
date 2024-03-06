@@ -4,6 +4,7 @@ export const defaultQuery: Partial<QuestDBQuery> = {};
 
 export enum PostgresTLSModes {
   disable = 'disable',
+  prefer = 'prefer',
   require = 'require',
   verifyCA = 'verify-ca',
   verifyFull = 'verify-full',

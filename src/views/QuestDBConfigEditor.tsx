@@ -100,6 +100,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
 
   const tlsModes: Array<SelectableValue<PostgresTLSModes>> = [
     { value: PostgresTLSModes.disable, label: 'disable' },
+    { value: PostgresTLSModes.prefer, label: 'prefer' },
     { value: PostgresTLSModes.require, label: 'require' },
     { value: PostgresTLSModes.verifyCA, label: 'verify-ca' },
     { value: PostgresTLSModes.verifyFull, label: 'verify-full' },
@@ -127,7 +128,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
           <Input
             name="server"
             width={40}
-            value={jsonData.server || ''}
+            value={jsonData.server || 'localhost'}
             onChange={onUpdateDatasourceJsonDataOption(props, 'server')}
             label={Components.ConfigEditor.ServerAddress.label}
             aria-label={Components.ConfigEditor.ServerAddress.label}
@@ -143,7 +144,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             name="port"
             width={40}
             type="number"
-            value={jsonData.port || ''}
+            value={jsonData.port || '8812'}
             onChange={(e) => onPortChange(e.currentTarget.value)}
             label={Components.ConfigEditor.ServerPort.label}
             aria-label={Components.ConfigEditor.ServerPort.label}
@@ -161,7 +162,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
           <Input
             name="user"
             width={40}
-            value={jsonData.username || ''}
+            value={jsonData.username || 'admin'}
             onChange={onUpdateDatasourceJsonDataOption(props, 'username')}
             label={Components.ConfigEditor.Username.label}
             aria-label={Components.ConfigEditor.Username.label}
@@ -175,7 +176,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             label={Components.ConfigEditor.Password.label}
             aria-label={Components.ConfigEditor.Password.label}
             placeholder={Components.ConfigEditor.Password.placeholder}
-            value={secureJsonData.password || ''}
+            value={secureJsonData.password || 'quest'}
             isConfigured={(secureJsonFields && secureJsonFields.password) as boolean}
             onReset={onResetPassword}
             onChange={onUpdateDatasourceSecureJsonDataOption(props, 'password')}
@@ -286,7 +287,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
               width={40}
               className="gf-form"
               options={tlsModes}
-              value={jsonData.tlsMode || PostgresTLSModes.verifyFull}
+              value={jsonData.tlsMode || PostgresTLSModes.prefer}
               onChange={(e) =>  onTlsModeChange(e.value)}
               placeholder={Components.ConfigEditor.TlsMode.placeholder}
           />

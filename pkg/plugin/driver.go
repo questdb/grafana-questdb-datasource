@@ -118,6 +118,7 @@ func GenerateConnectionString(settings Settings, version string) (string, error)
 	}
 
 	if settings.TlsMode != "disable" &&
+	    settings.TlsMode != "prefer" &&
 		settings.TlsMode != "require" &&
 		settings.TlsMode != "verify-ca" &&
 		settings.TlsMode != "verify-full" {
