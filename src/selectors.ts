@@ -13,12 +13,12 @@ export const Components = {
     },
     Username: {
       label: 'Username',
-      placeholder: 'Username',
+      placeholder: 'admin',
       tooltip: 'QuestDB username',
     },
     Password: {
       label: 'Password',
-      placeholder: 'Password',
+      placeholder: 'quest',
       tooltip: 'QuestDB password',
     },
     TLSCACert: {
