@@ -128,7 +128,8 @@ export const ConfigEditor: React.FC<Props> = (props) => {
           <Input
             name="server"
             width={40}
-            value={jsonData.server || 'localhost'}
+            value={jsonData.server}
+            defaultValue={Components.ConfigEditor.ServerAddress.placeholder}
             onChange={onUpdateDatasourceJsonDataOption(props, 'server')}
             label={Components.ConfigEditor.ServerAddress.label}
             aria-label={Components.ConfigEditor.ServerAddress.label}
@@ -143,8 +144,9 @@ export const ConfigEditor: React.FC<Props> = (props) => {
           <Input
             name="port"
             width={40}
-            type="number"
-            value={jsonData.port || '8812'}
+            type="string"
+            value={jsonData.port || ''}
+            defaultValue={Components.ConfigEditor.ServerPort.placeholder}
             onChange={(e) => onPortChange(e.currentTarget.value)}
             label={Components.ConfigEditor.ServerPort.label}
             aria-label={Components.ConfigEditor.ServerPort.label}
@@ -162,7 +164,8 @@ export const ConfigEditor: React.FC<Props> = (props) => {
           <Input
             name="user"
             width={40}
-            value={jsonData.username || 'admin'}
+            value={jsonData.username}
+            defaultValue={Components.ConfigEditor.Username.placeholder}
             onChange={onUpdateDatasourceJsonDataOption(props, 'username')}
             label={Components.ConfigEditor.Username.label}
             aria-label={Components.ConfigEditor.Username.label}
@@ -176,7 +179,8 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             label={Components.ConfigEditor.Password.label}
             aria-label={Components.ConfigEditor.Password.label}
             placeholder={Components.ConfigEditor.Password.placeholder}
-            value={secureJsonData.password || 'quest'}
+            value={secureJsonData.password}
+            defaultValue={Components.ConfigEditor.Password.placeholder}
             isConfigured={(secureJsonFields && secureJsonFields.password) as boolean}
             onReset={onResetPassword}
             onChange={onUpdateDatasourceSecureJsonDataOption(props, 'password')}
