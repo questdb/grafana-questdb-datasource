@@ -1,5 +1,5 @@
 {
-  "name": "grafana-questdb-datasource",
+  "name": "questdb-grafana-datasource",
   "version": "0.1.2",
   "description": "QuestDB Datasource for Grafana",
   "engines": {
