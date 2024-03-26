@@ -40,7 +40,7 @@ func getClientVersion(ctx context.Context) string {
 		if version != "" {
 			version += ";"
 		}
-		result += fmt.Sprintf("questdb-datasource:%s", info.Version)
+		result += fmt.Sprintf("questdb-grafana-datasource:%s", info.Version)
 	}
 
 	return result
