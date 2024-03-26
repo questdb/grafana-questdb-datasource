@@ -106,6 +106,6 @@ jobs:
       - name: Archive plugin build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: grafana-questdb-datasource.zip
+          name: questdb-grafana-datasource.zip
           path: ${{ steps.metadata.outputs.archive }}
           retention-days: 7
