@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/grafana/grafana/master/docs/sources/developers/plugins/plugin.schema.json",
   "type": "datasource",
   "name": "QuestDB",
-  "id": "questdb-grafana-datasource",
+  "id": "questdb-questdb-datasource",
   "metrics": true,
   "backend": true,
   "logs": true,

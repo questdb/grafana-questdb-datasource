@@ -52,7 +52,7 @@ Here are some provisioning examples for this data source using basic authenticat
 apiVersion: 1
 datasources:
   - name: QuestDB
-    type: questdb-grafana-datasource
+    type: questdb-questdb-datasource
     jsonData:
       server: localhost
       port: 8812

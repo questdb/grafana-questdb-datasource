@@ -1,7 +1,7 @@
 apiVersion: 1
 datasources:
   - name: QuestDB-test
-    type: questdb-grafana-datasource
+    type: questdb-questdb-datasource
     jsonData:
       server: grafana-questdb-server
       port: 8812

@@ -14,7 +14,7 @@ let mockTimeField = "";
 const mockDatasource = new Datasource({
     id: 1,
     uid: 'questdb_ds',
-    type: 'questdb-grafana-datasource',
+    type: 'questdb-questdb-datasource',
     name: 'QuestDB',
     jsonData: {
         server: 'foo.com',
@@ -24,7 +24,7 @@ const mockDatasource = new Datasource({
     readOnly: true,
     access: 'direct',
     meta: {
-        id: 'questdb-grafana-datasource',
+        id: 'questdb-questdb-datasource',
         name: 'QuestDB',
         type: PluginType.datasource,
         module: '',

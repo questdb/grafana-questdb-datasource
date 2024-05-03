@@ -5,7 +5,7 @@ import { Datasource } from '../data/QuestDbDatasource';
 export const mockDatasource = new Datasource({
   id: 1,
   uid: 'questdb_ds',
-  type: 'questdb-grafana-datasource',
+  type: 'questdb-questdb-datasource',
   name: 'QuestDB',
   jsonData: {
     server: 'foo.com',
