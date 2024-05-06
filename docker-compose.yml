@@ -6,7 +6,7 @@ services:
     ports:
       - '3000:3000'
     volumes:
-      - ./:/var/lib/grafana/plugins/grafana-questdb-datasource
+      - ./:/var/lib/grafana/plugins/questdb-questdb-datasource
       - ./provisioning:/etc/grafana/provisioning
     environment:
       - TERM=linux

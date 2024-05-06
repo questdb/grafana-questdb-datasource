@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/grafana/grafana/master/docs/sources/developers/plugins/plugin.schema.json",
   "type": "datasource",
   "name": "QuestDB",
-  "id": "grafana-questdb-datasource",
+  "id": "questdb-questdb-datasource",
   "metrics": true,
   "backend": true,
   "logs": true,
@@ -30,7 +30,12 @@
         "url": "https://github.com/questdb/grafana-questdb-datasource/blob/master/LICENSE"
       }
     ],
-    "screenshots": [],
+    "screenshots": [
+      {
+        "name": "SQL Builder",
+        "path": "img/sql_builder.png"
+      }
+    ],
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },
