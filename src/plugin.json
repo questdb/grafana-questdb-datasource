@@ -30,7 +30,12 @@
         "url": "https://github.com/questdb/grafana-questdb-datasource/blob/master/LICENSE"
       }
     ],
-    "screenshots": [],
+    "screenshots": [
+      {
+        "name": "SQL Builder",
+        "path": "img/sql_builder.png"
+      }
+    ],
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },
