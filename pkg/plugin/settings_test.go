@@ -28,7 +28,7 @@ func TestLoadSettings(t *testing.T) {
 				args: args{
 					config: backend.DataSourceInstanceSettings{
 						UID: "ds-uid",
-						JSONData: []byte(`{ "server": "test", "port": 8812, "username": "john", "timeout": "10", "queryTimeout": "50", 
+						JSONData: []byte(`{ "server": "test", "port": 8812, "username": "john", "timeout": 10, "queryTimeout": 50, 
 											"enableSecureSocksProxy": false, "tlsMode": "disable",
 											"maxOpenConnections": 100, "maxIdleConnections": 100, "maxConnectionLifetime": 14400 }`),
 						DecryptedSecureJSONData: map[string]string{"password": "doe"},
@@ -133,7 +133,7 @@ func TestLoadSettings(t *testing.T) {
 				name: "should converting string values to the correct type",
 				args: args{
 					config: backend.DataSourceInstanceSettings{
-						JSONData:                []byte(`{"server": "test", "username": "u", "port": "1234", "timeout": "15", "queryTimeout": "25", "maxOpenConnections": 10, "maxIdleConnections": 5, "maxConnectionLifetime": 3600   }`),
+						JSONData:                []byte(`{"server": "test", "username": "u", "port": "1234", "timeout": 15, "queryTimeout": 25, "maxOpenConnections": 10, "maxIdleConnections": 5, "maxConnectionLifetime": 3600   }`),
 						DecryptedSecureJSONData: map[string]string{"password": "p"},
 					},
 				},
