@@ -1,10 +1,10 @@
 import React from 'react';
-import {render, screen} from '@testing-library/react';
-import {ConfigEditor} from './QuestDBConfigEditor';
-import {mockConfigEditorProps} from '../__mocks__/ConfigEditor';
-import {Components} from './../selectors';
+import { render, screen } from '@testing-library/react';
+import { ConfigEditor } from './QuestDBConfigEditor';
+import { mockConfigEditorProps } from '../__mocks__/ConfigEditor';
+import { Components } from './../selectors';
 import '@testing-library/jest-dom';
-import {PostgresTLSMethods, PostgresTLSModes} from "../types";
+import { PostgresTLSMethods, PostgresTLSModes } from '../types';
 
 jest.mock('@grafana/runtime', () => {
   const original = jest.requireActual('@grafana/runtime');
@@ -55,7 +55,9 @@ describe('ConfigEditor', () => {
     expect(screen.queryByText(PostgresTLSModes.disable)).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(Components.ConfigEditor.TlsMethod.placeholder)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSCACertFile.placeholder)).not.toBeInTheDocument();
-    expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSClientCertFile.placeholder)).not.toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText(Components.ConfigEditor.TLSClientCertFile.placeholder)
+    ).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSClientKeyFile.placeholder)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSCACert.placeholder)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSClientCert.placeholder)).not.toBeInTheDocument();
@@ -63,15 +65,17 @@ describe('ConfigEditor', () => {
   });
   it('with tlsMode and filePath tlsMethod', async () => {
     render(
-        <ConfigEditor
-            {...mockConfigEditorProps()}
-            options={{
-              ...mockConfigEditorProps().options,
-              jsonData: { ...mockConfigEditorProps().options.jsonData,
-                tlsMode: PostgresTLSModes.verifyCA,
-                tlsConfigurationMethod: PostgresTLSMethods.filePath },
-            }}
-        />
+      <ConfigEditor
+        {...mockConfigEditorProps()}
+        options={{
+          ...mockConfigEditorProps().options,
+          jsonData: {
+            ...mockConfigEditorProps().options.jsonData,
+            tlsMode: PostgresTLSModes.verifyCA,
+            tlsConfigurationMethod: PostgresTLSMethods.filePath,
+          },
+        }}
+      />
     );
     expect(screen.queryByText(PostgresTLSModes.verifyCA)).toBeInTheDocument();
     expect(screen.queryByText(Components.ConfigEditor.TlsMethod.placeholder)).toBeInTheDocument();
@@ -81,15 +85,17 @@ describe('ConfigEditor', () => {
 
   it('with verifyFull tlsMode and fileContent tlsMethod', async () => {
     render(
-        <ConfigEditor
-            {...mockConfigEditorProps()}
-            options={{
-              ...mockConfigEditorProps().options,
-              jsonData: { ...mockConfigEditorProps().options.jsonData,
-                tlsMode: PostgresTLSModes.verifyFull,
-                tlsConfigurationMethod: PostgresTLSMethods.fileContent },
-            }}
-        />
+      <ConfigEditor
+        {...mockConfigEditorProps()}
+        options={{
+          ...mockConfigEditorProps().options,
+          jsonData: {
+            ...mockConfigEditorProps().options.jsonData,
+            tlsMode: PostgresTLSModes.verifyFull,
+            tlsConfigurationMethod: PostgresTLSMethods.fileContent,
+          },
+        }}
+      />
     );
     expect(screen.queryByText(PostgresTLSModes.verifyFull)).toBeInTheDocument();
     expect(screen.queryByText(Components.ConfigEditor.TlsMethod.placeholder)).toBeInTheDocument();
@@ -112,8 +118,8 @@ describe('ConfigEditor', () => {
   });*/
   it('with additional properties', async () => {
     const jsonDataOverrides = {
-      queryTimeout: '100',
-      timeout: '100',
+      queryTimeout: 100,
+      timeout: 100,
       enableSecureSocksProxy: true,
     };
     render(<ConfigEditor {...mockConfigEditorProps(jsonDataOverrides)} />);

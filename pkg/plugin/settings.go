@@ -22,8 +22,8 @@ type Settings struct {
 	TlsClientCert string
 	TlsClientKey  string
 
-	Timeout               string `json:"timeout,omitempty"`
-	QueryTimeout          string `json:"queryTimeout,omitempty"`
+	Timeout               int64 `json:"timeout,omitempty"`
+	QueryTimeout          int64 `json:"queryTimeout,omitempty"`
 	ProxyOptions          *proxy.Options
 	MaxOpenConnections    int64 `json:"maxOpenConnections,omitempty"`
 	MaxIdleConnections    int64 `json:"maxIdleConnections,omitempty"`
@@ -83,22 +83,28 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings,
 	}
 
 	if jsonData["timeout"] != nil {
-		settings.Timeout = jsonData["timeout"].(string)
+		if val, ok := jsonData["timeout"].(string); ok {
+			timeout, err := strconv.ParseInt(val, 0, 64)
+			if err != nil {
+				return settings, fmt.Errorf("could not parse timeout value: %w", err)
+			}
+			settings.Timeout = timeout
+		}
+		if val, ok := jsonData["timeout"].(float64); ok {
+			settings.Timeout = int64(val)
+		}
 	}
 	if jsonData["queryTimeout"] != nil {
-		if val, ok := jsonData["queryTimeout"].(string); ok {
+		if val, ok := jsonData["queryTimeout"].(int64); ok {
 			settings.QueryTimeout = val
 		}
 		if val, ok := jsonData["queryTimeout"].(float64); ok {
-			settings.QueryTimeout = fmt.Sprintf("%d", int64(val))
+			settings.QueryTimeout = int64(val)
 		}
 	}
 
-	if strings.TrimSpace(settings.Timeout) == "" {
-		settings.Timeout = "10"
-	}
-	if strings.TrimSpace(settings.QueryTimeout) == "" {
-		settings.QueryTimeout = "60"
+	if strings.TrimSpace(strconv.FormatInt(settings.QueryTimeout, 10)) == "" {
+		settings.QueryTimeout = 60
 	}
 	password, ok := config.DecryptedSecureJSONData["password"]
 	if ok {
@@ -140,7 +146,7 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings,
 
 	if err == nil && proxyOpts != nil {
 		// the sdk expects the timeout to not be a string
-		timeout, err := strconv.ParseFloat(settings.Timeout, 64)
+		timeout, err := strconv.ParseFloat(strconv.FormatInt(settings.Timeout, 10), 64)
 		if err == nil {
 			proxyOpts.Timeouts.Timeout = (time.Duration(timeout) * time.Second)
 		}
