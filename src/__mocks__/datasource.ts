@@ -1,21 +1,21 @@
 import { PluginType } from '@grafana/data';
-import {QuestDBQuery, QueryType} from '../types';
+import { QuestDBQuery, QueryType, Format } from '../types';
 import { Datasource } from '../data/QuestDbDatasource';
 
 export const mockDatasource = new Datasource({
   id: 1,
   uid: 'questdb_ds',
-  type: 'questdb-questdb-datasource',
+  type: 'grafana-questdb-datasource',
   name: 'QuestDB',
   jsonData: {
     server: 'foo.com',
     port: 443,
-    username: 'user'
+    username: 'user',
   },
   readOnly: true,
   access: 'direct',
   meta: {
-    id: 'questdb-grafana-datasource',
+    id: 'questdb-questdb-datasource',
     name: 'QuestDB',
     type: PluginType.datasource,
     module: '',
@@ -42,5 +42,5 @@ export const mockQuery: QuestDBQuery = {
   refId: '',
   format: 1,
   queryType: QueryType.SQL,
-  selectedFormat: 4,
+  selectedFormat: Format.AUTO,
 };

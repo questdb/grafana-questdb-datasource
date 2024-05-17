@@ -2,16 +2,17 @@ import React from 'react';
 import {
   DataSourcePluginOptionsEditorProps,
   onUpdateDatasourceJsonDataOption,
-  onUpdateDatasourceSecureJsonDataOption, SelectableValue,
+  onUpdateDatasourceSecureJsonDataOption,
+  SelectableValue,
 } from '@grafana/data';
-import {Field, Input, SecretInput, Select, Switch} from '@grafana/ui';
-import {CertificationKey} from '../components/ui/CertificationKey';
-import {Components} from './../selectors';
-import {PostgresTLSModes, PostgresTLSMethods, QuestDBConfig, QuestDBSecureConfig} from './../types';
-import {gte} from 'semver';
-import {ConfigSection, DataSourceDescription} from '@grafana/experimental';
-import {config} from '@grafana/runtime';
-import {Divider} from 'components/Divider';
+import { Field, Input, SecretInput, Select, Switch } from '@grafana/ui';
+import { CertificationKey } from '../components/ui/CertificationKey';
+import { Components } from './../selectors';
+import { PostgresTLSModes, PostgresTLSMethods, QuestDBConfig, QuestDBSecureConfig } from './../types';
+import { gte } from 'semver';
+import { ConfigSection, DataSourceDescription } from '@grafana/experimental';
+import { config } from '@grafana/runtime';
+import { Divider } from 'components/Divider';
 
 export interface Props extends DataSourcePluginOptionsEditorProps<QuestDBConfig> {}
 
@@ -49,10 +50,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
       },
     });
   };
-  const onSwitchToggle = (
-    key: keyof Pick<QuestDBConfig, 'validate' | 'enableSecureSocksProxy'>,
-    value: boolean
-  ) => {
+  const onSwitchToggle = (key: keyof Pick<QuestDBConfig, 'validate' | 'enableSecureSocksProxy'>, value: boolean) => {
     onOptionsChange({
       ...options,
       jsonData: {
@@ -154,10 +152,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
 
       <Divider />
       <ConfigSection title="Credentials">
-        <Field
-          label={Components.ConfigEditor.Username.label}
-          description={Components.ConfigEditor.Username.tooltip}
-        >
+        <Field label={Components.ConfigEditor.Username.label} description={Components.ConfigEditor.Username.tooltip}>
           <Input
             name="user"
             width={40}
@@ -186,185 +181,196 @@ export const ConfigEditor: React.FC<Props> = (props) => {
       <Divider />
       <ConfigSection title="Connection limits">
         <Field
+          label={Components.ConfigEditor.MaxOpenConnections.label}
+          description={Components.ConfigEditor.MaxOpenConnections.tooltip}
+        >
+          <Input
+            name="maxOpenConnections"
+            width={40}
+            value={jsonData.maxOpenConnections || ''}
+            onChange={onUpdateDatasourceJsonDataOption(props, 'maxOpenConnections')}
             label={Components.ConfigEditor.MaxOpenConnections.label}
-            description={Components.ConfigEditor.MaxOpenConnections.tooltip}
-        >
-          <Input
-              name="maxOpenConnections"
-              width={40}
-              value={jsonData.maxOpenConnections || ''}
-              onChange={onUpdateDatasourceJsonDataOption(props, 'maxOpenConnections')}
-              label={Components.ConfigEditor.MaxOpenConnections.label}
-              aria-label={Components.ConfigEditor.MaxOpenConnections.label}
-              placeholder={Components.ConfigEditor.MaxOpenConnections.placeholder}
-              defaultValue={Components.ConfigEditor.MaxOpenConnections.placeholder}
+            aria-label={Components.ConfigEditor.MaxOpenConnections.label}
+            placeholder={Components.ConfigEditor.MaxOpenConnections.placeholder}
+            defaultValue={Components.ConfigEditor.MaxOpenConnections.placeholder}
+            type="number"
           />
         </Field>
 
         <Field
+          label={Components.ConfigEditor.MaxIdleConnections.label}
+          description={Components.ConfigEditor.MaxIdleConnections.tooltip}
+        >
+          <Input
+            name="maxIdleConnections"
+            width={40}
+            value={jsonData.maxIdleConnections || ''}
+            onChange={onUpdateDatasourceJsonDataOption(props, 'maxIdleConnections')}
             label={Components.ConfigEditor.MaxIdleConnections.label}
-            description={Components.ConfigEditor.MaxIdleConnections.tooltip}
-        >
-          <Input
-              name="maxIdleConnections"
-              width={40}
-              value={jsonData.maxIdleConnections || ''}
-              onChange={onUpdateDatasourceJsonDataOption(props, 'maxIdleConnections')}
-              label={Components.ConfigEditor.MaxIdleConnections.label}
-              aria-label={Components.ConfigEditor.MaxIdleConnections.label}
-              placeholder={Components.ConfigEditor.MaxIdleConnections.placeholder}
-              defaultValue={Components.ConfigEditor.MaxIdleConnections.placeholder}
+            aria-label={Components.ConfigEditor.MaxIdleConnections.label}
+            placeholder={Components.ConfigEditor.MaxIdleConnections.placeholder}
+            defaultValue={Components.ConfigEditor.MaxIdleConnections.placeholder}
+            type="number"
           />
         </Field>
 
         <Field
-            label={Components.ConfigEditor.MaxConnectionLifetime.label}
-            description={Components.ConfigEditor.MaxConnectionLifetime.tooltip}
+          label={Components.ConfigEditor.MaxConnectionLifetime.label}
+          description={Components.ConfigEditor.MaxConnectionLifetime.tooltip}
         >
           <Input
-              name="maxConnectionLifetime"
-              width={40}
-              value={jsonData.maxConnectionLifetime || ''}
-              onChange={onUpdateDatasourceJsonDataOption(props, 'maxConnectionLifetime')}
-              label={Components.ConfigEditor.MaxConnectionLifetime.label}
-              aria-label={Components.ConfigEditor.MaxConnectionLifetime.label}
-              placeholder={Components.ConfigEditor.MaxConnectionLifetime.placeholder}
-              defaultValue={Components.ConfigEditor.MaxConnectionLifetime.placeholder}
+            name="maxConnectionLifetime"
+            width={40}
+            value={jsonData.maxConnectionLifetime || ''}
+            onChange={onUpdateDatasourceJsonDataOption(props, 'maxConnectionLifetime')}
+            label={Components.ConfigEditor.MaxConnectionLifetime.label}
+            aria-label={Components.ConfigEditor.MaxConnectionLifetime.label}
+            placeholder={Components.ConfigEditor.MaxConnectionLifetime.placeholder}
+            defaultValue={Components.ConfigEditor.MaxConnectionLifetime.placeholder}
+            type="number"
           />
         </Field>
 
         <Field label={Components.ConfigEditor.Timeout.label} description={Components.ConfigEditor.Timeout.tooltip}>
           <Input
-              name="timeout"
-              width={40}
-              value={jsonData.timeout || ''}
-              onChange={onUpdateDatasourceJsonDataOption(props, 'timeout')}
-              label={Components.ConfigEditor.Timeout.label}
-              aria-label={Components.ConfigEditor.Timeout.label}
-              placeholder={Components.ConfigEditor.Timeout.placeholder}
-              defaultValue={Components.ConfigEditor.Timeout.placeholder}
-              type="number"
+            name="timeout"
+            width={40}
+            value={jsonData.timeout || ''}
+            onChange={onUpdateDatasourceJsonDataOption(props, 'timeout')}
+            label={Components.ConfigEditor.Timeout.label}
+            aria-label={Components.ConfigEditor.Timeout.label}
+            placeholder={Components.ConfigEditor.Timeout.placeholder}
+            defaultValue={Components.ConfigEditor.Timeout.placeholder}
+            type="number"
           />
         </Field>
         <Field
-            label={Components.ConfigEditor.QueryTimeout.label}
-            description={Components.ConfigEditor.QueryTimeout.tooltip}
+          label={Components.ConfigEditor.QueryTimeout.label}
+          description={Components.ConfigEditor.QueryTimeout.tooltip}
         >
           <Input
-              name="queryTimeout"
-              width={40}
-              value={jsonData.queryTimeout || ''}
-              onChange={onUpdateDatasourceJsonDataOption(props, 'queryTimeout')}
-              label={Components.ConfigEditor.QueryTimeout.label}
-              aria-label={Components.ConfigEditor.QueryTimeout.label}
-              placeholder={Components.ConfigEditor.QueryTimeout.placeholder}
-              defaultValue={Components.ConfigEditor.QueryTimeout.placeholder}
-              type="number"
+            name="queryTimeout"
+            width={40}
+            value={jsonData.queryTimeout || ''}
+            onChange={onUpdateDatasourceJsonDataOption(props, 'queryTimeout')}
+            label={Components.ConfigEditor.QueryTimeout.label}
+            aria-label={Components.ConfigEditor.QueryTimeout.label}
+            placeholder={Components.ConfigEditor.QueryTimeout.placeholder}
+            defaultValue={Components.ConfigEditor.QueryTimeout.placeholder}
+            type="number"
           />
         </Field>
 
         {config.featureToggles['secureSocksDSProxyEnabled'] && gte(config.buildInfo.version, '10.0.0') && (
-            <Field
-                label={Components.ConfigEditor.SecureSocksProxy.label}
-                description={Components.ConfigEditor.SecureSocksProxy.tooltip}
-            >
-              <Switch
-                  className="gf-form"
-                  value={jsonData.enableSecureSocksProxy || false}
-                  onChange={(e) => onSwitchToggle('enableSecureSocksProxy', e.currentTarget.checked)}
-              />
-            </Field>
+          <Field
+            label={Components.ConfigEditor.SecureSocksProxy.label}
+            description={Components.ConfigEditor.SecureSocksProxy.tooltip}
+          >
+            <Switch
+              className="gf-form"
+              value={jsonData.enableSecureSocksProxy || false}
+              onChange={(e) => onSwitchToggle('enableSecureSocksProxy', e.currentTarget.checked)}
+            />
+          </Field>
         )}
-
       </ConfigSection>
 
       <Divider />
       <ConfigSection title="TLS / SSL Settings">
         <Field label={Components.ConfigEditor.TlsMode.label} description={Components.ConfigEditor.TlsMode.tooltip}>
           <Select
-              id="tlsMode"
-              width={40}
-              className="gf-form"
-              options={tlsModes}
-              value={jsonData.tlsMode || PostgresTLSModes.verifyFull}
-              onChange={(e) =>  onTlsModeChange(e.value)}
-              placeholder={Components.ConfigEditor.TlsMode.placeholder}
+            id="tlsMode"
+            width={40}
+            className="gf-form"
+            options={tlsModes}
+            value={jsonData.tlsMode || PostgresTLSModes.verifyFull}
+            onChange={(e) => onTlsModeChange(e.value)}
+            placeholder={Components.ConfigEditor.TlsMode.placeholder}
           />
         </Field>
 
         {jsonData.tlsMode !== PostgresTLSModes.disable ? (
-            <>
-            <Field label={Components.ConfigEditor.TlsMethod.label}  description={Components.ConfigEditor.TlsMethod.tooltip}>
+          <>
+            <Field
+              label={Components.ConfigEditor.TlsMethod.label}
+              description={Components.ConfigEditor.TlsMethod.tooltip}
+            >
               <Select
-                  options={tlsMethods}
-                  value={jsonData.tlsConfigurationMethod || PostgresTLSMethods.filePath}
-                  onChange={e=>onTlsConfigurationMethodChange(e.value)}
-                  placeholder={Components.ConfigEditor.TlsMethod.placeholder}
-                  width={40}
+                options={tlsMethods}
+                value={jsonData.tlsConfigurationMethod || PostgresTLSMethods.filePath}
+                onChange={(e) => onTlsConfigurationMethodChange(e.value)}
+                placeholder={Components.ConfigEditor.TlsMethod.placeholder}
+                width={40}
               />
             </Field>
 
-              {jsonData.tlsConfigurationMethod === PostgresTLSMethods.fileContent ? (
+            {jsonData.tlsConfigurationMethod === PostgresTLSMethods.fileContent ? (
+              <>
+                <CertificationKey
+                  hasCert={!!hasTLSCACert}
+                  onChange={(e) => onCertificateChangeFactory('tlsCACert', e.currentTarget.value)}
+                  placeholder={Components.ConfigEditor.TLSCACert.placeholder}
+                  label={Components.ConfigEditor.TLSCACert.label}
+                  onClick={() => onResetClickFactory('tlsCACert')}
+                />
+                {false && (
                   <>
                     <CertificationKey
-                        hasCert={!!hasTLSCACert}
-                        onChange={(e) => onCertificateChangeFactory('tlsCACert', e.currentTarget.value)}
-                        placeholder={Components.ConfigEditor.TLSCACert.placeholder}
-                        label={Components.ConfigEditor.TLSCACert.label}
-                        onClick={() => onResetClickFactory('tlsCACert')}
+                      hasCert={!!hasTLSClientCert}
+                      onChange={(e) => onCertificateChangeFactory('tlsClientCert', e.currentTarget.value)}
+                      placeholder={Components.ConfigEditor.TLSClientCert.placeholder}
+                      label={Components.ConfigEditor.TLSClientCert.label}
+                      onClick={() => onResetClickFactory('tlsClientCert')}
                     />
-                    { false && (
-                        <>
-                          <CertificationKey
-                              hasCert={!!hasTLSClientCert}
-                              onChange={(e) => onCertificateChangeFactory('tlsClientCert', e.currentTarget.value)}
-                              placeholder={Components.ConfigEditor.TLSClientCert.placeholder}
-                              label={Components.ConfigEditor.TLSClientCert.label}
-                              onClick={() => onResetClickFactory('tlsClientCert')}
-                          />
-                          <CertificationKey
-                              hasCert={!!hasTLSClientKey}
-                              placeholder={Components.ConfigEditor.TLSClientKey.placeholder}
-                              label={Components.ConfigEditor.TLSClientKey.label}
-                              onChange={(e) => onCertificateChangeFactory('tlsClientKey', e.currentTarget.value)}
-                              onClick={() => onResetClickFactory('tlsClientKey')}
-                          />
-                      </>
-                    )}
+                    <CertificationKey
+                      hasCert={!!hasTLSClientKey}
+                      placeholder={Components.ConfigEditor.TLSClientKey.placeholder}
+                      label={Components.ConfigEditor.TLSClientKey.label}
+                      onChange={(e) => onCertificateChangeFactory('tlsClientKey', e.currentTarget.value)}
+                      onClick={() => onResetClickFactory('tlsClientKey')}
+                    />
                   </>
-              ) : (
+                )}
+              </>
+            ) : (
+              <>
+                <Field
+                  label={Components.ConfigEditor.TLSCACertFile.label}
+                  description={Components.ConfigEditor.TLSCACertFile.placeholder}
+                >
+                  <Input
+                    value={jsonData.tlsCACertFile || ''}
+                    onChange={onUpdateDatasourceJsonDataOption(props, 'tlsCACertFile')}
+                    width={40}
+                    placeholder={Components.ConfigEditor.TLSCACertFile.placeholder}
+                  />
+                </Field>
+                {false && (
                   <>
-                    <Field label={Components.ConfigEditor.TLSCACertFile.label}
-                           description={Components.ConfigEditor.TLSCACertFile.placeholder}>
+                    <Field
+                      label={Components.ConfigEditor.TLSClientCertFile.label}
+                      description={Components.ConfigEditor.TLSClientCertFile.placeholder}
+                    >
                       <Input
-                          value={jsonData.tlsCACertFile || ''}
-                          onChange={onUpdateDatasourceJsonDataOption(props, 'tlsCACertFile')}
-                          width={40}
-                          placeholder={Components.ConfigEditor.TLSCACertFile.placeholder}
+                        value={jsonData.tlsClientCertFile || ''}
+                        onChange={onUpdateDatasourceJsonDataOption(props, 'tlsClientCertFile')}
+                        width={40}
                       />
                     </Field>
-                    { false && (
-                        <>
-                          <Field label={Components.ConfigEditor.TLSClientCertFile.label}
-                                 description={Components.ConfigEditor.TLSClientCertFile.placeholder} >
-                            <Input
-                                value={jsonData.tlsClientCertFile || ''}
-                                onChange={onUpdateDatasourceJsonDataOption(props, 'tlsClientCertFile')}
-                                width={40}
-                            />
-                          </Field>
-                          <Field label={Components.ConfigEditor.TLSClientKeyFile.label}
-                                 description={Components.ConfigEditor.TLSClientKeyFile.placeholder}>
-                            <Input
-                                value={jsonData.tlsClientKeyFile || ''}
-                                onChange={onUpdateDatasourceJsonDataOption(props, 'tlsClientKeyFile')}
-                                width={40}
-                            />
-                          </Field>
-                        </>
-                    )}
+                    <Field
+                      label={Components.ConfigEditor.TLSClientKeyFile.label}
+                      description={Components.ConfigEditor.TLSClientKeyFile.placeholder}
+                    >
+                      <Input
+                        value={jsonData.tlsClientKeyFile || ''}
+                        onChange={onUpdateDatasourceJsonDataOption(props, 'tlsClientKeyFile')}
+                        width={40}
+                      />
+                    </Field>
                   </>
-              )}
+                )}
+              </>
+            )}
           </>
         ) : null}
       </ConfigSection>
