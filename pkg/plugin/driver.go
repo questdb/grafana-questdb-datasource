@@ -5,13 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	sdkproxy "github.com/grafana/grafana-plugin-sdk-go/backend/proxy"
-	"github.com/lib/pq"
-	"golang.org/x/net/proxy"
 	"net"
 	"strconv"
 	"strings"
 	"time"
+
+	sdkproxy "github.com/grafana/grafana-plugin-sdk-go/backend/proxy"
+	"github.com/lib/pq"
+	"golang.org/x/net/proxy"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
@@ -106,14 +107,10 @@ func GenerateConnectionString(settings Settings, version string) (string, error)
 		connStr += fmt.Sprintf(" application_name='%s'", version)
 	}
 
-	if len(settings.Timeout) > 0 {
-		t, err := strconv.Atoi(settings.Timeout)
-		if err != nil {
-			return "", errors.New(fmt.Sprintf("invalid timeout: %s", settings.Timeout))
-		}
-
-		if t > -1 {
-			connStr += fmt.Sprintf(" connect_timeout=%d", t)
+	if settings.Timeout > 0 {
+		t := strconv.Itoa(int(settings.Timeout))
+		if i, err := strconv.Atoi(t); err == nil && i > -1 {
+			connStr += fmt.Sprintf(" connect_timeout=%d", i)
 		}
 	}
 
@@ -220,7 +217,7 @@ func (h *QuestDB) Settings(config backend.DataSourceInstanceSettings) sqlds.Driv
 	settings, err := LoadSettings(config)
 	timeout := 60
 	if err == nil {
-		t, err := strconv.Atoi(settings.QueryTimeout)
+		t, err := strconv.Atoi(strconv.FormatInt(settings.QueryTimeout, 10))
 		if err == nil {
 			timeout = t
 		}

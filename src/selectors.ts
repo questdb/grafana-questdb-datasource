@@ -36,15 +36,18 @@ export const Components = {
 
     TLSCACertFile: {
       label: 'TLS/SSL Root Certificate File',
-      placeholder: 'If the selected TLS/SSL mode requires a server root certificate, provide the path to the file here.',
+      placeholder:
+        'If the selected TLS/SSL mode requires a server root certificate, provide the path to the file here.',
     },
     TLSClientCertFile: {
       label: 'TLS/SSL Client Certificate File',
-      placeholder: 'To authenticate with an TLS/SSL client certificate, provide the path to the file here. Be sure that the file is readable by the user executing the grafana process.',
+      placeholder:
+        'To authenticate with an TLS/SSL client certificate, provide the path to the file here. Be sure that the file is readable by the user executing the grafana process.',
     },
     TLSClientKeyFile: {
       label: 'TLS/SSL Client Key File',
-      placeholder: 'To authenticate with a client TLS/SSL certificate, provide the path to the corresponding key file here. Be sure that the file is only readable by the user executing the grafana process.'
+      placeholder:
+        'To authenticate with a client TLS/SSL certificate, provide the path to the corresponding key file here. Be sure that the file is only readable by the user executing the grafana process.',
     },
 
     Timeout: {
@@ -59,18 +62,20 @@ export const Components = {
     },
     TlsMode: {
       label: 'TLS/SSL Mode',
-      tooltip: 'This option determines whether or with what priority a secure TLS/SSL TCP/IP connection will be negotiated with the server',
-      placeholder: "TLS/SSL Mode"
+      tooltip:
+        'This option determines whether or with what priority a secure TLS/SSL TCP/IP connection will be negotiated with the server. For QuestDB Cloud, use "require". For self-hosted QuestDB, use "disable".',
+      placeholder: 'TLS/SSL Mode',
     },
     TlsMethod: {
       label: 'TLS/SSL Method',
-      tooltip: 'This option determines how TLS/SSL certifications are configured. Selecting ' +
-          '"File system path" will allow you to configure certificates by specifying paths to existing ' +
-          'certificates on the local file system where Grafana is running. Be sure that the file is ' +
-          'readable by the user executing the Grafana process. ' +
-          'Selecting "Certificate content" will allow you to configure certificates by specifying its ' +
-          'content. The content will be stored encrypted in Grafana\'s database.',
-      placeholder: 'TLS/SSL Method'
+      tooltip:
+        'This option determines how TLS/SSL certifications are configured. Selecting ' +
+        '"File system path" will allow you to configure certificates by specifying paths to existing ' +
+        'certificates on the local file system where Grafana is running. Be sure that the file is ' +
+        'readable by the user executing the Grafana process. ' +
+        'Selecting "Certificate content" will allow you to configure certificates by specifying its ' +
+        "content. The content will be stored encrypted in Grafana's database.",
+      placeholder: 'TLS/SSL Method',
     },
     SecureSocksProxy: {
       label: 'Enable Secure Socks Proxy',
@@ -89,7 +94,8 @@ export const Components = {
     MaxConnectionLifetime: {
       label: 'Max lifetime',
       placeholder: '14400',
-      tooltip: 'The maximum amount of time (in seconds) a connection may be reused. If set to 0, connections are reused forever.',
+      tooltip:
+        'The maximum amount of time (in seconds) a connection may be reused. If set to 0, connections are reused forever.',
     },
   },
   QueryEditor: {
@@ -199,7 +205,7 @@ export const Components = {
       },
       DESIGNATED_TIMESTAMP: {
         label: 'Designated timestamp',
-        tooltip: 'Select table\'s designated timestamp',
+        tooltip: "Select table's designated timestamp",
       },
       ALIGN_TO: {
         label: 'Align to',

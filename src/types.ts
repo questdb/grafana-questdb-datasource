@@ -23,8 +23,8 @@ export interface QuestDBConfig extends DataSourceJsonData {
   tlsAuthWithCACert?: boolean;
   secure?: boolean;
   validate?: boolean;
-  timeout?: string;
-  queryTimeout?: string;
+  timeout?: number;
+  queryTimeout?: number;
   enableSecureSocksProxy?: boolean;
   maxOpenConnections?: number;
   maxIdleConnections?: number;
@@ -92,17 +92,17 @@ export enum BuilderMode {
 }
 
 export enum SampleByFillMode {
-  None= 'NONE',
+  None = 'NONE',
   Null = 'NULL',
   Prev = 'PREV',
-  Linear = 'LINEAR'
+  Linear = 'LINEAR',
 }
 
 export enum SampleByAlignToMode {
   FirstObservation = 'FIRST OBSERVATION',
   Calendar = 'CALENDAR',
   CalendarTimeZone = 'CALENDAR TIME ZONE',
-  CalendarOffset = 'CALENDAR WITH OFFSET'
+  CalendarOffset = 'CALENDAR WITH OFFSET',
 }
 
 export const modeRequiresValue = (mode: SampleByAlignToMode): boolean => {
@@ -119,7 +119,7 @@ export interface SqlBuilderOptionsList {
   table?: string;
   fields?: string[];
   filters?: Filter[];
-  partitionBy?: string[]
+  partitionBy?: string[];
   orderBy?: OrderBy[];
   limit?: string;
   timeField: string;
@@ -227,7 +227,7 @@ export enum FilterOperator {
   ContainedBy = '<<',
   ContainedByOrEqual = '<<=',
   WithInGrafanaTimeRange = 'WITH IN DASHBOARD TIME RANGE',
-  OutsideGrafanaTimeRange = 'OUTSIDE DASHBOARD TIME RANGE'
+  OutsideGrafanaTimeRange = 'OUTSIDE DASHBOARD TIME RANGE',
 }
 
 export interface CommonFilterProps {
@@ -248,7 +248,15 @@ export interface BooleanFilter extends CommonFilterProps {
 }
 
 export interface StringFilter extends CommonFilterProps {
-  operator: FilterOperator.Equals | FilterOperator.NotEquals | FilterOperator.Like | FilterOperator.NotLike | FilterOperator.ILike | FilterOperator.NotILike | FilterOperator.Match | FilterOperator.NotMatch;
+  operator:
+    | FilterOperator.Equals
+    | FilterOperator.NotEquals
+    | FilterOperator.Like
+    | FilterOperator.NotLike
+    | FilterOperator.ILike
+    | FilterOperator.NotILike
+    | FilterOperator.Match
+    | FilterOperator.NotMatch;
   value: string;
 }
 
@@ -307,7 +315,7 @@ export const defaultBuilderQuery: Omit<QuestDBBuilderQuery, 'refId'> = {
     mode: BuilderMode.List,
     fields: [],
     limit: '100',
-    timeField: ''
+    timeField: '',
   },
   format: Format.TABLE,
   selectedFormat: Format.AUTO,
