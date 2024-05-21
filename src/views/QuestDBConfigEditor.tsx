@@ -299,13 +299,13 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             width={40}
             className="gf-form"
             options={tlsModes}
-            value={jsonData.tlsMode || PostgresTLSModes.disable}
+            value={jsonData.tlsMode}
             onChange={(e) => onTlsModeChange(e.value)}
             placeholder={Components.ConfigEditor.TlsMode.placeholder}
           />
         </Field>
 
-        {jsonData.tlsMode !== PostgresTLSModes.disable ? (
+        {jsonData.tlsMode && jsonData.tlsMode !== PostgresTLSModes.disable ? (
           <>
             <Field
               label={Components.ConfigEditor.TlsMethod.label}
