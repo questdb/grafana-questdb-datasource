@@ -96,6 +96,22 @@ export const ConfigEditor: React.FC<Props> = (props) => {
     });
   };
 
+  const onUpdateNumberOption = (
+    key: keyof Pick<
+      QuestDBConfig,
+      'timeout' | 'queryTimeout' | 'maxConnectionLifetime' | 'maxIdleConnections' | 'maxOpenConnections'
+    >,
+    value: string
+  ) => {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        [key]: value ? +value : undefined,
+      },
+    });
+  };
+
   const tlsModes: Array<SelectableValue<PostgresTLSModes>> = [
     { value: PostgresTLSModes.disable, label: 'disable' },
     { value: PostgresTLSModes.require, label: 'require' },
@@ -188,7 +204,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             name="maxOpenConnections"
             width={40}
             value={jsonData.maxOpenConnections || ''}
-            onChange={onUpdateDatasourceJsonDataOption(props, 'maxOpenConnections')}
+            onChange={(e) => onUpdateNumberOption('maxOpenConnections', e.currentTarget.value)}
             label={Components.ConfigEditor.MaxOpenConnections.label}
             aria-label={Components.ConfigEditor.MaxOpenConnections.label}
             placeholder={Components.ConfigEditor.MaxOpenConnections.placeholder}
@@ -205,7 +221,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             name="maxIdleConnections"
             width={40}
             value={jsonData.maxIdleConnections || ''}
-            onChange={onUpdateDatasourceJsonDataOption(props, 'maxIdleConnections')}
+            onChange={(e) => onUpdateNumberOption('maxIdleConnections', e.currentTarget.value)}
             label={Components.ConfigEditor.MaxIdleConnections.label}
             aria-label={Components.ConfigEditor.MaxIdleConnections.label}
             placeholder={Components.ConfigEditor.MaxIdleConnections.placeholder}
@@ -222,7 +238,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             name="maxConnectionLifetime"
             width={40}
             value={jsonData.maxConnectionLifetime || ''}
-            onChange={onUpdateDatasourceJsonDataOption(props, 'maxConnectionLifetime')}
+            onChange={(e) => onUpdateNumberOption('maxConnectionLifetime', e.currentTarget.value)}
             label={Components.ConfigEditor.MaxConnectionLifetime.label}
             aria-label={Components.ConfigEditor.MaxConnectionLifetime.label}
             placeholder={Components.ConfigEditor.MaxConnectionLifetime.placeholder}
@@ -236,7 +252,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             name="timeout"
             width={40}
             value={jsonData.timeout || ''}
-            onChange={onUpdateDatasourceJsonDataOption(props, 'timeout')}
+            onChange={(e) => onUpdateNumberOption('timeout', e.currentTarget.value)}
             label={Components.ConfigEditor.Timeout.label}
             aria-label={Components.ConfigEditor.Timeout.label}
             placeholder={Components.ConfigEditor.Timeout.placeholder}
@@ -252,7 +268,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             name="queryTimeout"
             width={40}
             value={jsonData.queryTimeout || ''}
-            onChange={onUpdateDatasourceJsonDataOption(props, 'queryTimeout')}
+            onChange={(e) => onUpdateNumberOption('queryTimeout', e.currentTarget.value)}
             label={Components.ConfigEditor.QueryTimeout.label}
             aria-label={Components.ConfigEditor.QueryTimeout.label}
             placeholder={Components.ConfigEditor.QueryTimeout.placeholder}
