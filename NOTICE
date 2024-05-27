@@ -1,0 +1,12 @@
+QuestDB Grafana datasource plugin
+
+Original work Copyright 2022-2023 Grafana Labs
+Dervied work Copyright 2014-2019 Appsicle
+Derived work Copyright 2019-2024 QuestDB
+
+This product includes software developed at
+Grafana Labs (https://grafana.com/).
+
+The Initial Developer of some parts of the plugin, which are copied from, derived from, or
+inspired by Official ClickHouse data source for Grafana (https://github.com/grafana/clickhouse-datasource/), is Grafana Labs (https://grafana.com/).
+Copyright 2022-2023 Grafana Labs.
