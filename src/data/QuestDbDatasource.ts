@@ -9,24 +9,16 @@ import {
   MetricFindValue,
   ScopedVars,
   TypedVariableModel,
-  vectorator,
 } from '@grafana/data';
 import { DataSourceWithBackend, getTemplateSrv } from '@grafana/runtime';
 import { Observable } from 'rxjs';
-import {
-  QuestDBConfig,
-  QuestDBQuery,
-  FullField,
-  QueryType,
-} from '../types';
+import { QuestDBConfig, QuestDBQuery, FullField, QueryType } from '../types';
 import { AdHocFilter } from './adHocFilter';
 import { isString } from 'lodash';
-import {Table} from "../components/questdb-sql/utils";
-import {InformationSchemaColumn} from "../components/questdb-sql/types";
+import { Table } from '../components/questdb-sql/utils';
+import { InformationSchemaColumn } from '../components/questdb-sql/types';
 
-export class Datasource
-  extends DataSourceWithBackend<QuestDBQuery, QuestDBConfig>
-{
+export class Datasource extends DataSourceWithBackend<QuestDBQuery, QuestDBConfig> {
   // This enables default annotation support for 7.2+
   annotations = {};
   settings: DataSourceInstanceSettings<QuestDBConfig>;
@@ -55,11 +47,11 @@ export class Datasource
       return [];
     }
     if (frame?.fields?.length === 1) {
-      return vectorator(frame?.fields[0]?.values).map((text) => ({ text, value: text }));
+      return frame?.fields[0]?.values.toArray().map((text) => ({ text, value: text }));
     }
     // convention - assume the first field is an id field
     const ids = frame?.fields[0]?.values;
-    return vectorator(frame?.fields[1]?.values).map((text, i) => ({ text, value: ids.get(i) }));
+    return frame?.fields[1]?.values.toArray().map((text, i) => ({ text, value: ids.get(i) }));
   }
 
   applyTemplateVariables(query: QuestDBQuery, scoped: ScopedVars): QuestDBQuery {
@@ -157,9 +149,9 @@ export class Datasource
     return view.map((item) => ({
       tableName: item[0],
       partitionBy: item[1],
-      designatedTimestamp: item[2] === null ? "" : item[2],
+      designatedTimestamp: item[2] === null ? '' : item[2],
       walEnabled: item[3],
-      dedup: item[4]
+      dedup: item[4],
     }));
   }
 
@@ -188,9 +180,9 @@ export class Datasource
     const view = new DataFrameView(frame);
     return view.map((item) => ({
       tableName: item[0],
-      ordinalPosition:item[1],
+      ordinalPosition: item[1],
       columnName: item[2],
-      dataType: item[3]
+      dataType: item[3],
     }));
   }
 
@@ -268,7 +260,8 @@ export class Datasource
     }
     const field = frame.fields[0];
     // Convert to string to avoid https://github.com/grafana/grafana/issues/12209
-    return vectorator(field.values)
+    return field.values
+      .toArray()
       .filter((value) => value !== null)
       .map((value) => {
         return { text: String(value) };
@@ -280,7 +273,8 @@ export class Datasource
     const field = frame.fields.find((f) => f.name === key);
     if (field) {
       // Convert to string to avoid https://github.com/grafana/grafana/issues/12209
-      return vectorator(field.values)
+      return field.values
+        .toArray()
         .filter((value) => value !== null)
         .map((value) => {
           return { text: String(value) };
@@ -318,15 +312,18 @@ export class Datasource
     // @todo https://github.com/grafana/grafana/issues/13109
     const ADHOC_VAR = '$questdb_adhoc_query';
     let source = getTemplateSrv().replace(ADHOC_VAR);
-    source = source === ADHOC_VAR ? "" : source;
-    if ( !source ){
+    source = source === ADHOC_VAR ? '' : source;
+    if (!source) {
       const sql = 'select column_name, data_type, table_name from information_schema.columns';
       return { type: TagType.schema, source: sql, from: source };
     }
     if (source.toLowerCase().startsWith('select')) {
       return { type: TagType.query, source };
     }
-    const tables = source.split(',').filter((t) => t?.trim()).join(',');
+    const tables = source
+      .split(',')
+      .filter((t) => t?.trim())
+      .join(',');
     const sql = `select column_name, data_type, table_name from information_schema.columns WHERE table_name IN ('${tables}')`;
     return { type: TagType.schema, source: sql, from: source };
   }
