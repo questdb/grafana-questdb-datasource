@@ -1,11 +1,11 @@
-import React, {useState} from 'react';
-import {SelectableValue} from '@grafana/data';
-import {Button, Input, MultiSelect, RadioButtonGroup, Select} from '@grafana/ui';
-import {Filter, FilterOperator, FullField, NullFilter} from '../../types';
+import React, { useState } from 'react';
+import { SelectableValue } from '@grafana/data';
+import { Button, Input, MultiSelect, RadioButtonGroup, Select } from '@grafana/ui';
+import { Filter, FilterOperator, FullField, NullFilter } from '../../types';
 import * as utils from './utils';
-import {selectors} from '../../selectors';
-import {styles} from '../../styles';
-import {EditorField, EditorFieldGroup} from '@grafana/experimental';
+import { selectors } from '../../selectors';
+import { styles } from '../../styles';
+import { EditorField, EditorFieldGroup } from '@grafana/plugin-ui';
 
 const boolValues: Array<SelectableValue<boolean>> = [
   { value: true, label: 'True' },
@@ -38,12 +38,12 @@ const filterOperators: Array<SelectableValue<FilterOperator>> = [
   { value: FilterOperator.OutsideGrafanaTimeRange, label: 'OUTSIDE DASHBOARD TIME RANGE' },
 ];
 const standardTimeOptions: Array<SelectableValue<string>> = [
-  { value: 'date_trunc(\'day\', now())', label: 'TODAY' },
-  { value: 'date_trunc(\'day\', dateadd(\'d\', -1, now()))', label: 'YESTERDAY' },
+  { value: "date_trunc('day', now())", label: 'TODAY' },
+  { value: "date_trunc('day', dateadd('d', -1, now()))", label: 'YESTERDAY' },
   { value: 'now()', label: 'NOW' },
-  { value: 'date_trunc(\'day\', dateadd(\'w\', -1, now()))', label: 'WEEK AGO' },
-  { value: 'date_trunc(\'day\', dateadd(\'M\', -1, now()))', label: 'MONTH AGO' },
-  { value: 'date_trunc(\'day\', dateadd(\'y\', -1, now()))', label: 'YEAR AGO' },
+  { value: "date_trunc('day', dateadd('w', -1, now()))", label: 'WEEK AGO' },
+  { value: "date_trunc('day', dateadd('M', -1, now()))", label: 'MONTH AGO' },
+  { value: "date_trunc('day', dateadd('y', -1, now()))", label: 'YEAR AGO' },
   { value: 'GRAFANA_START_TIME', label: 'DASHBOARD START TIME' },
   { value: 'GRAFANA_END_TIME', label: 'DASHBOARD END TIME' },
 ];
@@ -67,7 +67,9 @@ const FilterValueNumberItem = (props: { value: number; onChange: (value: number)
         type="number"
         value={value}
         onChange={(e) => setValue(e.currentTarget.value.replace(/[^0-9 ,-]/, ''))}
-        onBlur={(e) => { props.onChange(Number(value)); }}
+        onBlur={(e) => {
+          props.onChange(Number(value));
+        }}
       />
     </div>
   );
@@ -114,13 +116,13 @@ export const FilterValueEditor = (props: {
     };
     if (filter.type === 'picklist') {
       return (
-          <div data-testid="query-builder-filters-multi-picklist-value-container">
-            <MultiSelect
-                value={filter.value}
-                options={getOptions()}
-                onChange={(e) => onMultiFilterValueChange(e.map((v) => v.value!))}
-            />
-          </div>
+        <div data-testid="query-builder-filters-multi-picklist-value-container">
+          <MultiSelect
+            value={filter.value}
+            options={getOptions()}
+            onChange={(e) => onMultiFilterValueChange(e.map((v) => v.value!))}
+          />
+        </div>
       );
     }
     return <FilterValueMultiStringItem value={filter.value} onChange={onMultiFilterValueChange} />;
@@ -134,18 +136,16 @@ export const FilterValueEditor = (props: {
       </div>
     );
   } else if (utils.isNumberFilter(filter) /*&& !utils.isSetFilter(filter)*/) {
-      return <FilterValueNumberItem value={filter.value}
-                                    onChange={(value) => onFilterChange({ ...filter, value })} />;
+    return <FilterValueNumberItem value={filter.value} onChange={(value) => onFilterChange({ ...filter, value })} />;
   } else if (utils.isDateFilter(filter)) {
     const onDateFilterValueChange = (value: string) => {
       onFilterChange({ ...filter, value });
     };
     //
-    return utils.isDateFilterWithOutValue(filter) ? null :
-        (
+    return utils.isDateFilterWithOutValue(filter) ? null : (
       <div data-testid="query-builder-filters-date-value-container">
         <Select
-          value={filter.value }
+          value={filter.value}
           onChange={(e) => onDateFilterValueChange(e.value!)}
           allowCustomValue={true}
           options={[...standardTimeOptions]}
@@ -162,9 +162,7 @@ export const FilterValueEditor = (props: {
     ) {
       return (
         <div data-testid="query-builder-filters-single-picklist-value-container">
-          <Select value={filter.value}
-                  onChange={(e) => onStringFilterValueChange(e.value!)}
-                  options={getOptions()} />
+          <Select value={filter.value} onChange={(e) => onStringFilterValueChange(e.value!)} options={getOptions()} />
         </div>
       );
     }
@@ -204,15 +202,11 @@ export const FilterEditor = (props: {
       return filterOperators.filter((f) => [FilterOperator.Equals, FilterOperator.NotEquals].includes(f.value!));
     } else if (utils.isGeoHashType(type)) {
       return filterOperators.filter((f) =>
-          [
-            FilterOperator.IsNull,
-            FilterOperator.IsNotNull,
-            FilterOperator.Equals,
-            FilterOperator.NotEquals,
-          ].includes(f.value!)
+        [FilterOperator.IsNull, FilterOperator.IsNotNull, FilterOperator.Equals, FilterOperator.NotEquals].includes(
+          f.value!
+        )
       );
-    }
-    else if (utils.isNumberType(type)) {
+    } else if (utils.isNumberType(type)) {
       let list = [
         FilterOperator.Equals,
         FilterOperator.NotEquals,
@@ -221,15 +215,13 @@ export const FilterEditor = (props: {
         FilterOperator.GreaterThan,
         FilterOperator.GreaterThanOrEqual,
         FilterOperator.In,
-        FilterOperator.NotIn
+        FilterOperator.NotIn,
       ];
-      if ( utils.isNullableNumberType(type)){
+      if (utils.isNullableNumberType(type)) {
         list.push(FilterOperator.IsNull);
         list.push(FilterOperator.IsNotNull);
       }
-      return filterOperators.filter((f) =>
-            list.includes(f.value!)
-        );
+      return filterOperators.filter((f) => list.includes(f.value!));
     } else if (utils.isDateType(type)) {
       return filterOperators.filter((f) =>
         [
@@ -268,29 +260,26 @@ export const FilterEditor = (props: {
       );
     } else if (utils.isIPv4Type(type)) {
       return filterOperators.filter((f) =>
-          [
-            FilterOperator.IsNull,
-            FilterOperator.IsNotNull,
-            FilterOperator.Equals,
-            FilterOperator.NotEquals,
-            FilterOperator.GreaterThan,
-            FilterOperator.GreaterThanOrEqual,
-            FilterOperator.LessThan,
-            FilterOperator.LessThanOrEqual,
-            FilterOperator.ContainedBy,
-            FilterOperator.ContainedByOrEqual,
-            FilterOperator.In,
-            FilterOperator.NotIn,
-          ].includes(f.value!)
+        [
+          FilterOperator.IsNull,
+          FilterOperator.IsNotNull,
+          FilterOperator.Equals,
+          FilterOperator.NotEquals,
+          FilterOperator.GreaterThan,
+          FilterOperator.GreaterThanOrEqual,
+          FilterOperator.LessThan,
+          FilterOperator.LessThanOrEqual,
+          FilterOperator.ContainedBy,
+          FilterOperator.ContainedByOrEqual,
+          FilterOperator.In,
+          FilterOperator.NotIn,
+        ].includes(f.value!)
       );
     } else {
       return filterOperators.filter((f) =>
-          [
-            FilterOperator.IsNull,
-            FilterOperator.IsNotNull,
-            FilterOperator.Equals,
-            FilterOperator.NotEquals
-          ].includes(f.value!)
+        [FilterOperator.IsNull, FilterOperator.IsNotNull, FilterOperator.Equals, FilterOperator.NotEquals].includes(
+          f.value!
+        )
       );
     }
   };
@@ -337,7 +326,7 @@ export const FilterEditor = (props: {
         type: filterData.type as 'date',
         condition: filter.condition || 'AND',
         operator: FilterOperator.Equals,
-        value: '',//TODAY
+        value: '', //TODAY
       };
     } else {
       newFilter = {
@@ -418,33 +407,33 @@ export const FiltersEditor = (props: {
   return (
     <EditorField tooltip={tooltip} label={label}>
       <EditorFieldGroup>
-        <div style={{flexDirection: 'column'}}>
+        <div style={{ flexDirection: 'column' }}>
           <Button
-              data-testid="query-builder-filters-add-button"
-              icon="plus-circle"
-              variant="secondary"
-              size="sm"
-              className='gf-form'
-              onClick={addFilter}
+            data-testid="query-builder-filters-add-button"
+            icon="plus-circle"
+            variant="secondary"
+            size="sm"
+            className="gf-form"
+            onClick={addFilter}
           >
             {AddLabel}
           </Button>
 
           {filters.map((filter, index) => {
             return (
-                <div className="gf-form" key={index}>
-                  <FilterEditor fieldsList={fieldsList} filter={filter} onFilterChange={onFilterChange} index={index}/>
-                  <Button
-                      data-testid="query-builder-filters-remove-button"
-                      icon="trash-alt"
-                      variant="destructive"
-                      size="sm"
-                      className={styles.Common.smallBtn}
-                      onClick={() => removeFilter(index)}
-                  >
-                    {RemoveLabel}
-                  </Button>
-                </div>
+              <div className="gf-form" key={index}>
+                <FilterEditor fieldsList={fieldsList} filter={filter} onFilterChange={onFilterChange} index={index} />
+                <Button
+                  data-testid="query-builder-filters-remove-button"
+                  icon="trash-alt"
+                  variant="destructive"
+                  size="sm"
+                  className={styles.Common.smallBtn}
+                  onClick={() => removeFilter(index)}
+                >
+                  {RemoveLabel}
+                </Button>
+              </div>
             );
           })}
         </div>

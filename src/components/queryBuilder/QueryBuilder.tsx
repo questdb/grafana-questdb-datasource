@@ -1,15 +1,15 @@
-import React, {useEffect, useState} from 'react';
+import React, { useEffect, useState } from 'react';
 import defaultsDeep from 'lodash/defaultsDeep';
-import {Datasource} from '../../data/QuestDbDatasource';
-import {TableSelect} from './TableSelect';
-import {ModeEditor} from './ModeEditor';
-import {FieldsEditor} from './Fields';
-import {MetricsEditor} from './Metrics';
-import {SampleByAlignEditor} from './SampleByAlignment';
-import {FiltersEditor} from './Filters';
-import {GroupByEditor} from './GroupBy';
-import {getOrderByFields, OrderByEditor} from './OrderBy';
-import {LimitEditor} from './Limit';
+import { Datasource } from '../../data/QuestDbDatasource';
+import { TableSelect } from './TableSelect';
+import { ModeEditor } from './ModeEditor';
+import { FieldsEditor } from './Fields';
+import { MetricsEditor } from './Metrics';
+import { SampleByAlignEditor } from './SampleByAlignment';
+import { FiltersEditor } from './Filters';
+import { GroupByEditor } from './GroupBy';
+import { getOrderByFields, OrderByEditor } from './OrderBy';
+import { LimitEditor } from './Limit';
 import {
   BuilderMetricField,
   BuilderMode,
@@ -22,13 +22,13 @@ import {
   SqlBuilderOptions,
   SqlBuilderOptionsTrend,
 } from '../../types';
-import {isDateType/*, isTimestampType*/} from './utils';
+import { isDateType /*, isTimestampType*/ } from './utils';
 //import {selectors} from '../../selectors';
-import {CoreApp} from '@grafana/data';
-import {EditorFieldGroup, EditorRow, EditorRows} from '@grafana/experimental';
-import {selectors} from "../../selectors";
-import {SampleByFillEditor} from "./SampleByFillEditor";
-import {PartitionByEditor} from "./PartitionByEditor";
+import { CoreApp } from '@grafana/data';
+import { EditorFieldGroup, EditorRow, EditorRows } from '@grafana/plugin-ui';
+import { selectors } from '../../selectors';
+import { SampleByFillEditor } from './SampleByFillEditor';
+import { PartitionByEditor } from './PartitionByEditor';
 
 interface QueryBuilderProps {
   builderOptions: SqlBuilderOptions;
@@ -80,7 +80,7 @@ export const QueryBuilder = (props: QueryBuilderProps) => {
   }, [props.datasource, builder.table]);
 
   const onTableChange = (table = '', designatedTimestamp?: string) => {
-    if (table === builder.table ){
+    if (table === builder.table) {
       return;
     }
     setBaseFieldsList([]);
@@ -92,7 +92,7 @@ export const QueryBuilder = (props: QueryBuilderProps) => {
       groupBy: [],
       orderBy: [],
       timeField: designatedTimestamp,
-      partitionBy: []
+      partitionBy: [],
     };
     props.onBuilderOptionsChange(queryOptions);
   };
@@ -115,7 +115,7 @@ export const QueryBuilder = (props: QueryBuilderProps) => {
         mode: BuilderMode.Trend,
         timeField: builder.timeField || '',
         metrics: builder.metrics || [],
-        sampleByAlignTo: builder.sampleByAlignTo || SampleByAlignToMode.Calendar
+        sampleByAlignTo: builder.sampleByAlignTo || SampleByAlignToMode.Calendar,
       };
       props.onBuilderOptionsChange(queryOptions);
     }
@@ -153,19 +153,23 @@ export const QueryBuilder = (props: QueryBuilderProps) => {
 
   const onSampleByAlignToFieldChange = (sampleByAlignTo = '') => {
     let sampleByAlignToValue = builder.sampleByAlignToValue;
-    if ( sampleByAlignToValue === undefined || sampleByAlignToValue.length === 0 ){
-      if ( sampleByAlignTo === SampleByAlignToMode.CalendarOffset ){
+    if (sampleByAlignToValue === undefined || sampleByAlignToValue.length === 0) {
+      if (sampleByAlignTo === SampleByAlignToMode.CalendarOffset) {
         sampleByAlignToValue = '00:00';
-      } else if (sampleByAlignTo === SampleByAlignToMode.CalendarTimeZone){
+      } else if (sampleByAlignTo === SampleByAlignToMode.CalendarTimeZone) {
         sampleByAlignToValue = 'UTC';
       }
-    } else if ( sampleByAlignTo === SampleByAlignToMode.Calendar || sampleByAlignTo === SampleByAlignToMode.FirstObservation ){
+    } else if (
+      sampleByAlignTo === SampleByAlignToMode.Calendar ||
+      sampleByAlignTo === SampleByAlignToMode.FirstObservation
+    ) {
       sampleByAlignToValue = '';
-    } else if ( sampleByAlignTo === SampleByAlignToMode.CalendarOffset
-        && !sampleByAlignToValue.matches('(-|\+)[[0-9][0-9]:[0-9][0-9]')){
+    } else if (
+      sampleByAlignTo === SampleByAlignToMode.CalendarOffset &&
+      !sampleByAlignToValue.matches('(-|+)[[0-9][0-9]:[0-9][0-9]')
+    ) {
       sampleByAlignToValue = '00:00';
-    } else if ( sampleByAlignTo === SampleByAlignToMode.CalendarTimeZone
-        && !sampleByAlignToValue.matches('[A-Z]+')){
+    } else if (sampleByAlignTo === SampleByAlignToMode.CalendarTimeZone && !sampleByAlignToValue.matches('[A-Z]+')) {
       sampleByAlignToValue = 'UTC';
     }
 
@@ -219,17 +223,18 @@ export const QueryBuilder = (props: QueryBuilderProps) => {
         </EditorFieldGroup>
       </EditorRow>
 
-      {(builder.mode === BuilderMode.Trend) && (
-          <EditorRow>
-            <GroupByEditor groupBy={builder.groupBy || []}
-                           onGroupByChange={onGroupByChange}
-                           fieldsList={fieldsList}
-                           labelAndTooltip={selectors.components.QueryEditor.QueryBuilder.SAMPLE_BY}
-            />
-          </EditorRow>
+      {builder.mode === BuilderMode.Trend && (
+        <EditorRow>
+          <GroupByEditor
+            groupBy={builder.groupBy || []}
+            onGroupByChange={onGroupByChange}
+            fieldsList={fieldsList}
+            labelAndTooltip={selectors.components.QueryEditor.QueryBuilder.SAMPLE_BY}
+          />
+        </EditorRow>
       )}
 
-      {builder.mode !== BuilderMode.Trend  && (
+      {builder.mode !== BuilderMode.Trend && (
         <EditorRow>
           <FieldsEditor fields={builder.fields || []} onFieldsChange={onFieldsChange} fieldsList={fieldsListWithAll} />
         </EditorRow>
@@ -245,41 +250,43 @@ export const QueryBuilder = (props: QueryBuilderProps) => {
       </EditorRow>
 
       {builder.mode === BuilderMode.Trend && (
-          <EditorRow>
-            <SampleByAlignEditor
-                timeField={builder.timeField}
-                fieldsList={fieldsList}
-                sampleByAlignToMode={builder.sampleByAlignTo}
-                sampleByAlignToValue={builder.sampleByAlignToValue}
-                onSampleByAlignToModeChange={onSampleByAlignToFieldChange}
-                onSampleByAlignToValueChange={onSampleByAlignToValueChange}
-            />
-          </EditorRow>
-      )}
-
-      {builder.mode === BuilderMode.Trend && (
-          <EditorRow>
-            <SampleByFillEditor fills={builder.sampleByFill || []} onFillsChange={onFillChange} />
-          </EditorRow>
-      )}
-
-      {(builder.mode === BuilderMode.Aggregate) && (
         <EditorRow>
-          <GroupByEditor groupBy={builder.groupBy || []}
-                         onGroupByChange={onGroupByChange}
-                         fieldsList={fieldsList}
-                         labelAndTooltip={selectors.components.QueryEditor.QueryBuilder.GROUP_BY}
+          <SampleByAlignEditor
+            timeField={builder.timeField}
+            fieldsList={fieldsList}
+            sampleByAlignToMode={builder.sampleByAlignTo}
+            sampleByAlignToValue={builder.sampleByAlignToValue}
+            onSampleByAlignToModeChange={onSampleByAlignToFieldChange}
+            onSampleByAlignToValueChange={onSampleByAlignToValueChange}
           />
         </EditorRow>
       )}
 
-      {(builder.mode === BuilderMode.List ) && (
-            <PartitionByEditor fields={builder.partitionBy || []}
-                               fieldsList={fieldsList}
-                               onFieldsChange={onLatestOnPartitionByChange}
-                               timeField={builder.timeField}
-                               isDisabled={builder.timeField.length === 0}
-            />
+      {builder.mode === BuilderMode.Trend && (
+        <EditorRow>
+          <SampleByFillEditor fills={builder.sampleByFill || []} onFillsChange={onFillChange} />
+        </EditorRow>
+      )}
+
+      {builder.mode === BuilderMode.Aggregate && (
+        <EditorRow>
+          <GroupByEditor
+            groupBy={builder.groupBy || []}
+            onGroupByChange={onGroupByChange}
+            fieldsList={fieldsList}
+            labelAndTooltip={selectors.components.QueryEditor.QueryBuilder.GROUP_BY}
+          />
+        </EditorRow>
+      )}
+
+      {builder.mode === BuilderMode.List && (
+        <PartitionByEditor
+          fields={builder.partitionBy || []}
+          fieldsList={fieldsList}
+          onFieldsChange={onLatestOnPartitionByChange}
+          timeField={builder.timeField}
+          isDisabled={builder.timeField.length === 0}
+        />
       )}
 
       <OrderByEditor
