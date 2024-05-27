@@ -15,7 +15,7 @@
     "author": {
       "name": "QuestDB"
     },
-    "keywords": ["Simple"],
+    "keywords": ["questdb", "time series", "time-series"],
     "logos": {
       "small": "img/logo.svg",
       "large": "img/logo.svg"
