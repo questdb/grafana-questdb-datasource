@@ -4,8 +4,8 @@ import { QueryTypeSwitcher } from 'components/QueryTypeSwitcher';
 import { FormatSelect } from '../components/FormatSelect';
 import { Button } from '@grafana/ui';
 import { getFormat } from 'components/editor';
-import { EditorHeader, FlexItem } from '@grafana/experimental';
-import {Datasource} from "../data/QuestDbDatasource";
+import { EditorHeader, FlexItem } from '@grafana/plugin-ui';
+import { Datasource } from '../data/QuestDbDatasource';
 
 interface QueryHeaderProps {
   query: QuestDBQuery;
@@ -14,7 +14,7 @@ interface QueryHeaderProps {
   datasource: Datasource;
 }
 
-export const QueryHeader = ({ query, onChange, onRunQuery, datasource}: QueryHeaderProps) => {
+export const QueryHeader = ({ query, onChange, onRunQuery, datasource }: QueryHeaderProps) => {
   React.useEffect(() => {
     if (typeof query.selectedFormat === 'undefined' && query.queryType === QueryType.SQL) {
       const selectedFormat = Format.AUTO;
