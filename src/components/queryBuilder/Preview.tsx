@@ -1,6 +1,6 @@
 import React from 'react';
 import { selectors } from './../../selectors';
-import { EditorField, EditorRow } from '@grafana/experimental';
+import { EditorField, EditorRow } from '@grafana/plugin-ui';
 interface PreviewProps {
   sql: string;
 }

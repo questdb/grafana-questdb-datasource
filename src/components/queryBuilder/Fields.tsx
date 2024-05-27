@@ -3,7 +3,7 @@ import { MultiSelect } from '@grafana/ui';
 import { SelectableValue } from '@grafana/data';
 import { FullField } from './../../types';
 import { selectors } from './../../selectors';
-import { EditorField } from '@grafana/experimental';
+import { EditorField } from '@grafana/plugin-ui';
 
 interface FieldsEditorProps {
   fieldsList: FullField[];

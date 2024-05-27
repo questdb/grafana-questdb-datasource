@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Input } from '@grafana/ui';
 import { selectors } from './../../selectors';
-import { EditorField } from '@grafana/experimental';
+import { EditorField } from '@grafana/plugin-ui';
 
 interface LimitEditorProps {
   limit: string;

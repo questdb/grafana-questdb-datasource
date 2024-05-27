@@ -2,7 +2,7 @@ import React from 'react';
 import { RadioButtonGroup } from '@grafana/ui';
 import { BuilderMode } from 'types';
 import { selectors } from './../../selectors';
-import { EditorField } from '@grafana/experimental';
+import { EditorField } from '@grafana/plugin-ui';
 
 interface ModeEditorProps {
   mode: BuilderMode;

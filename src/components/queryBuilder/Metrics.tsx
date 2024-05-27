@@ -4,7 +4,7 @@ import { InlineFormLabel, Select, Button, Input } from '@grafana/ui';
 import { BuilderMetricField, BuilderMetricFieldAggregation, FullField } from './../../types';
 import { selectors } from './../../selectors';
 import { styles } from '../../styles';
-import { EditorField, EditorFieldGroup } from '@grafana/experimental';
+import { EditorField, EditorFieldGroup } from '@grafana/plugin-ui';
 
 const MetricEditor = (props: {
   fieldsList: FullField[];
@@ -109,42 +109,36 @@ export const MetricsEditor = (props: MetricsEditorProps) => {
   return (
     <EditorField tooltip={tooltipAggregate} label={label}>
       <EditorFieldGroup>
-        <div style={{flexDirection: 'column'}}>
-          <Button
-              icon="plus-circle"
-              size="sm"
-              variant="secondary"
-              onClick={onMetricAdd}
-              className='gf-form'
-          >
+        <div style={{ flexDirection: 'column' }}>
+          <Button icon="plus-circle" size="sm" variant="secondary" onClick={onMetricAdd} className="gf-form">
             {AddLabel}
           </Button>
           {metrics.map((metric, index) => {
             return (
-                <div className="gf-form" key={index}>
-                  <MetricEditor
-                      fieldsList={fieldsList}
-                      index={index}
-                      metric={metric}
-                      metrics={metrics}
-                      onMetricsChange={onMetricsChange}
-                  />
-                  {metrics.length > 1 && (
-                      <Button
-                          icon="trash-alt"
-                          size="sm"
-                          variant="destructive"
-                          className={styles.Common.smallBtn}
-                          onClick={() => onMetricRemove(index)}
-                      >
-                        {RemoveLabel}
-                      </Button>
-                  )}
-                </div>
+              <div className="gf-form" key={index}>
+                <MetricEditor
+                  fieldsList={fieldsList}
+                  index={index}
+                  metric={metric}
+                  metrics={metrics}
+                  onMetricsChange={onMetricsChange}
+                />
+                {metrics.length > 1 && (
+                  <Button
+                    icon="trash-alt"
+                    size="sm"
+                    variant="destructive"
+                    className={styles.Common.smallBtn}
+                    onClick={() => onMetricRemove(index)}
+                  >
+                    {RemoveLabel}
+                  </Button>
+                )}
+              </div>
             );
           })}
         </div>
       </EditorFieldGroup>
     </EditorField>
-);
+  );
 };

@@ -12,7 +12,7 @@ import {
 } from './../../types';
 import { selectors } from './../../selectors';
 import { styles } from '../../styles';
-import { EditorField, EditorFieldGroup, EditorRow } from '@grafana/experimental';
+import { EditorField, EditorFieldGroup, EditorRow } from '@grafana/plugin-ui';
 
 const OrderByItem = (props: {
   index: number;
