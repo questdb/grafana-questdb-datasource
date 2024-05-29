@@ -54,7 +54,7 @@ func TestLoadSettings(t *testing.T) {
 					config: backend.DataSourceInstanceSettings{
 						UID: "ds-uid",
 						JSONData: []byte(`{ "server": "test", "port": 1000, "username": "john", "timeout": 10, "queryTimeout": 50, 
-											"enableSecureSocksProxy": true, "tlsMode": "verify-full", "tlsConfigurationMethod": "file-content",
+											"enableSecureSocksProxy": true, "tlsMode": "verify-full",
 											"maxOpenConnections": 100, "maxIdleConnections": 100, "maxConnectionLifetime": 14400 }`),
 						DecryptedSecureJSONData: map[string]string{"password": "doe", "tlsCACert": "caCert", "tlsClientCert": "clientCert", "tlsClientKey": "clientKey", "secureSocksProxyPassword": "test"},
 					},
@@ -73,7 +73,6 @@ func TestLoadSettings(t *testing.T) {
 					MaxIdleConnections:    100,
 					MaxConnectionLifetime: 14400,
 					TlsMode:               "verify-full",
-					ConfigurationMethod:   "file-content",
 					ProxyOptions: &proxy.Options{
 						Enabled: true,
 						Auth: &proxy.AuthOptions{
@@ -94,7 +93,7 @@ func TestLoadSettings(t *testing.T) {
 					config: backend.DataSourceInstanceSettings{
 						UID: "ds-uid",
 						JSONData: []byte(`{ "server": "test", "port": 8812, "username": "john",
-											"enableSecureSocksProxy": true, "tlsMode": "verify-ca", "tlsConfigurationMethod": "file-path",
+											"enableSecureSocksProxy": true, "tlsMode": "verify-ca",
 											"tlsCACertFile": "/var/caCertFile", "tlsClientCertFile": "/var/clientCertFile", "tlsClientKeyFile": "/var/clientKeyFile",
 											"timeout": 10, "queryTimeout": 50, "maxOpenConnections": 100, "maxIdleConnections": 100, "maxConnectionLifetime": 14400 }`),
 						DecryptedSecureJSONData: map[string]string{"password": "rambo", "secureSocksProxyPassword": "test"},
@@ -114,7 +113,6 @@ func TestLoadSettings(t *testing.T) {
 					MaxIdleConnections:    100,
 					MaxConnectionLifetime: 14400,
 					TlsMode:               "verify-ca",
-					ConfigurationMethod:   "file-path",
 					ProxyOptions: &proxy.Options{
 						Enabled: true,
 						Auth: &proxy.AuthOptions{

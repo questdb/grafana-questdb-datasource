@@ -124,69 +124,50 @@ func GenerateConnectionString(settings Settings, version string) (string, error)
 	connStr += fmt.Sprintf(" sslmode='%s'", escape(mode))
 
 	if mode != "disable" {
-		if settings.ConfigurationMethod == "file-content" {
-			connStr += " sslinline=true"
+		connStr += " sslinline=true"
 
-			// Attach root certificate if provided
-			if settings.TlsCACert != "" {
-				log.DefaultLogger.Debug("Setting server root certificate", "tlsRootCert", settings.TlsCACert)
-				connStr += fmt.Sprintf(" sslrootcert='%s'", escape(settings.TlsCACert))
-			}
+		// Attach root certificate if provided
+		if settings.TlsCACert != "" {
+			log.DefaultLogger.Debug("Setting server root certificate", "tlsRootCert", settings.TlsCACert)
+			connStr += fmt.Sprintf(" sslrootcert='%s'", escape(settings.TlsCACert))
+		}
 
-			// Attach client certificate and key if both are provided
-			if settings.TlsClientCert != "" && settings.TlsClientKey != "" {
-				log.DefaultLogger.Debug("Setting TLS/SSL client auth", "tlsCert", settings.TlsClientCert, "tlsKey", settings.TlsClientKey)
-				connStr += fmt.Sprintf(" sslcert='%s' sslkey='%s'", escape(settings.TlsClientCert), escape(settings.TlsClientKey))
-			} else if settings.TlsClientCert != "" || settings.TlsClientKey != "" {
-				return "", fmt.Errorf("TLS/SSL client certificate and key must both be specified")
-			} else {
-				//HACK: sslinline fails if client key or cert are empty, so we use sample ones [they're ignored by qdb anyway]
-				tlsClientCert := `
------BEGIN CERTIFICATE-----
-MIICEjCCAXsCAg36MA0GCSqGSIb3DQEBBQUAMIGbMQswCQYDVQQGEwJKUDEOMAwG
-A1UECBMFVG9reW8xEDAOBgNVBAcTB0NodW8ta3UxETAPBgNVBAoTCEZyYW5rNERE
-MRgwFgYDVQQLEw9XZWJDZXJ0IFN1cHBvcnQxGDAWBgNVBAMTD0ZyYW5rNEREIFdl
-YiBDQTEjMCEGCSqGSIb3DQEJARYUc3VwcG9ydEBmcmFuazRkZC5jb20wHhcNMTIw
-ODIyMDUyNjU0WhcNMTcwODIxMDUyNjU0WjBKMQswCQYDVQQGEwJKUDEOMAwGA1UE
-CAwFVG9reW8xETAPBgNVBAoMCEZyYW5rNEREMRgwFgYDVQQDDA93d3cuZXhhbXBs
-ZS5jb20wXDANBgkqhkiG9w0BAQEFAANLADBIAkEAm/xmkHmEQrurE/0re/jeFRLl
-8ZPjBop7uLHhnia7lQG/5zDtZIUC3RVpqDSwBuw/NTweGyuP+o8AG98HxqxTBwID
-AQABMA0GCSqGSIb3DQEBBQUAA4GBABS2TLuBeTPmcaTaUW/LCB2NYOy8GMdzR1mx
-8iBIu2H6/E2tiY3RIevV2OW61qY2/XRQg7YPxx3ffeUugX9F4J/iPnnu1zAxxyBy
-2VguKv4SWjRFoRkIfIlHX0qVviMhSlNy2ioFLy7JcPZb+v3ftDGywUqcBiVDoea0
-Hn+GmxZA
------END CERTIFICATE-----
-`
-				tlsClientKey := `
------BEGIN RSA PRIVATE KEY-----
-MIIBOwIBAAJBAJv8ZpB5hEK7qxP9K3v43hUS5fGT4waKe7ix4Z4mu5UBv+cw7WSF
-At0Vaag0sAbsPzU8Hhsrj/qPABvfB8asUwcCAwEAAQJAG0r3ezH35WFG1tGGaUOr
-QA61cyaII53ZdgCR1IU8bx7AUevmkFtBf+aqMWusWVOWJvGu2r5VpHVAIl8nF6DS
-kQIhAMjEJ3zVYa2/Mo4ey+iU9J9Vd+WoyXDQD4EEtwmyG1PpAiEAxuZlvhDIbbce
-7o5BvOhnCZ2N7kYb1ZC57g3F+cbJyW8CIQCbsDGHBto2qJyFxbAO7uQ8Y0UVHa0J
-BO/g900SAcJbcQIgRtEljIShOB8pDjrsQPxmI1BLhnjD1EhRSubwhDw5AFUCIQCN
-A24pDtdOHydwtSB5+zFqFLfmVZplQM/g5kb4so70Yw==
------END RSA PRIVATE KEY-----
-`
-				connStr += fmt.Sprintf(" sslcert='%s' sslkey='%s'", escape(tlsClientCert), escape(tlsClientKey))
-			}
-
-		} else if settings.ConfigurationMethod == "file-path" {
-			// Attach root certificate if provided
-			if settings.TlsCACertFile != "" {
-				log.DefaultLogger.Debug("Setting server root certificate", "tlsRootCertFile", settings.TlsCACertFile)
-				connStr += fmt.Sprintf(" sslrootcert='%s'", escape(settings.TlsCACertFile))
-			}
-
-			// Attach client certificate and key if both are provided
-			if settings.TlsClientCertFile != "" && settings.TlsClientKeyFile != "" {
-				log.DefaultLogger.Debug("Setting TLS/SSL client auth", "tlsCertFile", settings.TlsClientCertFile, "tlsKeyFile", settings.TlsClientKeyFile)
-				connStr += fmt.Sprintf(" sslcert='%s' sslkey='%s'", escape(settings.TlsClientCertFile), escape(settings.TlsClientKeyFile))
-			} else if settings.TlsClientCertFile != "" || settings.TlsClientKeyFile != "" {
-				return "", fmt.Errorf("TLS/SSL client certificate and key files must both be specified")
-			}
-		} else if settings.ConfigurationMethod != "" {
-			return "", errors.New(fmt.Sprintf("invalid ssl configuration method: %s", settings.ConfigurationMethod))
+		// Attach client certificate and key if both are provided
+		if settings.TlsClientCert != "" && settings.TlsClientKey != "" {
+			log.DefaultLogger.Debug("Setting TLS/SSL client auth", "tlsCert", settings.TlsClientCert, "tlsKey", settings.TlsClientKey)
+			connStr += fmt.Sprintf(" sslcert='%s' sslkey='%s'", escape(settings.TlsClientCert), escape(settings.TlsClientKey))
+		} else if settings.TlsClientCert != "" || settings.TlsClientKey != "" {
+			return "", fmt.Errorf("TLS/SSL client certificate and key must both be specified")
+		} else {
+			//HACK: sslinline fails if client key or cert are empty, so we use sample ones [they're ignored by qdb anyway]
+			tlsClientCert := `
+			-----BEGIN CERTIFICATE-----
+			MIICEjCCAXsCAg36MA0GCSqGSIb3DQEBBQUAMIGbMQswCQYDVQQGEwJKUDEOMAwG
+			A1UECBMFVG9reW8xEDAOBgNVBAcTB0NodW8ta3UxETAPBgNVBAoTCEZyYW5rNERE
+			MRgwFgYDVQQLEw9XZWJDZXJ0IFN1cHBvcnQxGDAWBgNVBAMTD0ZyYW5rNEREIFdl
+			YiBDQTEjMCEGCSqGSIb3DQEJARYUc3VwcG9ydEBmcmFuazRkZC5jb20wHhcNMTIw
+			ODIyMDUyNjU0WhcNMTcwODIxMDUyNjU0WjBKMQswCQYDVQQGEwJKUDEOMAwGA1UE
+			CAwFVG9reW8xETAPBgNVBAoMCEZyYW5rNEREMRgwFgYDVQQDDA93d3cuZXhhbXBs
+			ZS5jb20wXDANBgkqhkiG9w0BAQEFAANLADBIAkEAm/xmkHmEQrurE/0re/jeFRLl
+			8ZPjBop7uLHhnia7lQG/5zDtZIUC3RVpqDSwBuw/NTweGyuP+o8AG98HxqxTBwID
+			AQABMA0GCSqGSIb3DQEBBQUAA4GBABS2TLuBeTPmcaTaUW/LCB2NYOy8GMdzR1mx
+			8iBIu2H6/E2tiY3RIevV2OW61qY2/XRQg7YPxx3ffeUugX9F4J/iPnnu1zAxxyBy
+			2VguKv4SWjRFoRkIfIlHX0qVviMhSlNy2ioFLy7JcPZb+v3ftDGywUqcBiVDoea0
+			Hn+GmxZA
+			-----END CERTIFICATE-----
+			`
+			tlsClientKey := `
+			-----BEGIN RSA PRIVATE KEY-----
+			MIIBOwIBAAJBAJv8ZpB5hEK7qxP9K3v43hUS5fGT4waKe7ix4Z4mu5UBv+cw7WSF
+			At0Vaag0sAbsPzU8Hhsrj/qPABvfB8asUwcCAwEAAQJAG0r3ezH35WFG1tGGaUOr
+			QA61cyaII53ZdgCR1IU8bx7AUevmkFtBf+aqMWusWVOWJvGu2r5VpHVAIl8nF6DS
+			kQIhAMjEJ3zVYa2/Mo4ey+iU9J9Vd+WoyXDQD4EEtwmyG1PpAiEAxuZlvhDIbbce
+			7o5BvOhnCZ2N7kYb1ZC57g3F+cbJyW8CIQCbsDGHBto2qJyFxbAO7uQ8Y0UVHa0J
+			BO/g900SAcJbcQIgRtEljIShOB8pDjrsQPxmI1BLhnjD1EhRSubwhDw5AFUCIQCN
+			A24pDtdOHydwtSB5+zFqFLfmVZplQM/g5kb4so70Yw==
+			-----END RSA PRIVATE KEY-----
+			`
+			connStr += fmt.Sprintf(" sslcert='%s' sslkey='%s'", escape(tlsClientCert), escape(tlsClientKey))
 		}
 	}
 
