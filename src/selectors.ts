@@ -24,6 +24,8 @@ export const Components = {
     TLSCACert: {
       label: 'TLS/SSL Root Certificate',
       placeholder: 'CA Cert. Begins with -----BEGIN CERTIFICATE-----',
+      tooltip:
+        "Allows you to configure certificates by specifying its content. The content will be stored encrypted in Grafana's database.",
     },
     TLSClientCert: {
       label: 'TLS/SSL Client Certificate',
