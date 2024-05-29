@@ -4,7 +4,7 @@ import { ConfigEditor } from './QuestDBConfigEditor';
 import { mockConfigEditorProps } from '../__mocks__/ConfigEditor';
 import { Components } from './../selectors';
 import '@testing-library/jest-dom';
-import { PostgresTLSMethods, PostgresTLSModes } from '../types';
+import { PostgresTLSModes } from '../types';
 
 jest.mock('@grafana/runtime', () => {
   const original = jest.requireActual('@grafana/runtime');
