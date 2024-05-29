@@ -62,7 +62,7 @@ describe('ConfigEditor', () => {
     expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSClientCert.placeholder)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSClientKey.placeholder)).not.toBeInTheDocument();
   });
-  it('with verifyCA tlsMode and fileContent tlsMethod', async () => {
+  it('with verifyCA tlsMode', async () => {
     render(
       <ConfigEditor
         {...mockConfigEditorProps()}
@@ -71,7 +71,6 @@ describe('ConfigEditor', () => {
           jsonData: {
             ...mockConfigEditorProps().options.jsonData,
             tlsMode: PostgresTLSModes.verifyCA,
-            tlsConfigurationMethod: PostgresTLSMethods.fileContent,
           },
         }}
       />
@@ -81,7 +80,7 @@ describe('ConfigEditor', () => {
     expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSCACert.placeholder)).toBeInTheDocument();
   });
 
-  it('with verifyFull tlsMode and fileContent tlsMethod', async () => {
+  it('with verifyFull tlsMode', async () => {
     render(
       <ConfigEditor
         {...mockConfigEditorProps()}
@@ -90,7 +89,6 @@ describe('ConfigEditor', () => {
           jsonData: {
             ...mockConfigEditorProps().options.jsonData,
             tlsMode: PostgresTLSModes.verifyFull,
-            tlsConfigurationMethod: PostgresTLSMethods.fileContent,
           },
         }}
       />
