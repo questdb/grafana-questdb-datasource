@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/docker/docker/api/types/mount"
+	"github.com/lib/pq"
 	"math"
 	"os"
 	"path"
@@ -12,9 +14,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/docker/docker/api/types/mount"
-	"github.com/lib/pq"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -151,6 +150,7 @@ func setupConnection(t *testing.T) *sql.DB {
 	username := getEnv("QUESTDB_USERNAME", "admin")
 	password := getEnv("QUESTDB_PASSWORD", "quest")
 	tlsEnabled := getEnv("QUESTDB_TLS_ENABLED", "false")
+	tlsConfigurationMethod := getEnv("QUESTDB_METHOD", "file-content")
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -170,12 +170,13 @@ func setupConnection(t *testing.T) *sql.DB {
 	}
 
 	cnnstr, err := plugin.GenerateConnectionString(plugin.Settings{
-		Server:    host,
-		Port:      port,
-		Username:  username,
-		Password:  password,
-		TlsMode:   tlsMode,
-		TlsCACert: string(tlsCaCert),
+		Server:              host,
+		Port:                port,
+		Username:            username,
+		Password:            password,
+		TlsMode:             tlsMode,
+		ConfigurationMethod: tlsConfigurationMethod,
+		TlsCACert:           string(tlsCaCert),
 	}, "version")
 	if err != nil {
 		panic(err)

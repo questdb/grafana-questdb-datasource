@@ -54,7 +54,7 @@ func TestLoadSettings(t *testing.T) {
 					config: backend.DataSourceInstanceSettings{
 						UID: "ds-uid",
 						JSONData: []byte(`{ "server": "test", "port": 1000, "username": "john", "timeout": 10, "queryTimeout": 50, 
-											"enableSecureSocksProxy": true, "tlsMode": "verify-full",
+											"enableSecureSocksProxy": true, "tlsMode": "verify-full", "tlsConfigurationMethod": "file-content",
 											"maxOpenConnections": 100, "maxIdleConnections": 100, "maxConnectionLifetime": 14400 }`),
 						DecryptedSecureJSONData: map[string]string{"password": "doe", "tlsCACert": "caCert", "tlsClientCert": "clientCert", "tlsClientKey": "clientKey", "secureSocksProxyPassword": "test"},
 					},
@@ -94,7 +94,7 @@ func TestLoadSettings(t *testing.T) {
 					config: backend.DataSourceInstanceSettings{
 						UID: "ds-uid",
 						JSONData: []byte(`{ "server": "test", "port": 8812, "username": "john",
-											"enableSecureSocksProxy": true, "tlsMode": "verify-ca",
+											"enableSecureSocksProxy": true, "tlsMode": "verify-ca", "tlsConfigurationMethod": "file-path",
 											"tlsCACertFile": "/var/caCertFile", "tlsClientCertFile": "/var/clientCertFile", "tlsClientKeyFile": "/var/clientKeyFile",
 											"timeout": 10, "queryTimeout": 50, "maxOpenConnections": 100, "maxIdleConnections": 100, "maxConnectionLifetime": 14400 }`),
 						DecryptedSecureJSONData: map[string]string{"password": "rambo", "secureSocksProxyPassword": "test"},

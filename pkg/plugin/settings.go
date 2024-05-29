@@ -29,7 +29,8 @@ type Settings struct {
 	MaxIdleConnections    int64 `json:"maxIdleConnections,omitempty"`
 	MaxConnectionLifetime int64 `json:"maxConnectionLifetime,omitempty"`
 
-	TlsMode string `json:"tlsMode"`
+	TlsMode             string `json:"tlsMode"`
+	ConfigurationMethod string `json:"tlsConfigurationMethod"`
 
 	TlsCACertFile     string `json:"tlsCaCertFile"`
 	TlsClientCertFile string `json:"tlsClientCertFile"`
@@ -122,6 +123,9 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings,
 		settings.TlsClientKey = tlsClientKey
 	}
 
+	if jsonData["tlsConfigurationMethod"] != nil {
+		settings.ConfigurationMethod = jsonData["tlsConfigurationMethod"].(string)
+	}
 	if jsonData["tlsMode"] != nil {
 		settings.TlsMode = jsonData["tlsMode"].(string)
 	}
