@@ -9,6 +9,11 @@ export enum PostgresTLSModes {
   verifyFull = 'verify-full',
 }
 
+export enum PostgresTLSMethods {
+  filePath = 'file-path',
+  fileContent = 'file-content',
+}
+
 export interface QuestDBConfig extends DataSourceJsonData {
   username: string;
   server: string;
