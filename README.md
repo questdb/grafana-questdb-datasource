@@ -21,16 +21,17 @@ example, statements like `UPDATE users SET name='blahblah'`
 and `DROP TABLE importantTable;` would be executed.
 
 To configure a readonly user, follow these steps:
-* Open Source version
+
+- Open Source version
   1. Set the following properties in server.conf file:
      - pg.readonly.user.enabled=true
      - pg.readonly.user=myuser
      - pg.readonly.password=secret
   2. Restart QuestDB instance.
-* Enterprise version
+- Enterprise version
   1. Create user:
      - CREATE USER grafana_readonly;
-  2. Grant read permission on selected tables/table columns   ; 
+  2. Grant read permission on selected tables/table columns ;
      - GRANT SELECT ON table1, ... TO grafana_readonly;
 
 ### Manual configuration
@@ -58,7 +59,6 @@ datasources:
       port: 8812
       username: admin
       tlsMode: disable
-      # tlsConfigurationMethod: file-path | file-content
       # tlsCACertFile: <string>
       # timeout: <seconds>
       # queryTimeout: <seconds>
@@ -88,11 +88,13 @@ interprets timestamp rows without explicit time zone as UTC. Any column except
 
 To create multi-line time series, the query must return at least 3 fields in
 the following order:
-- field 1:  `timestamp` field with an alias of `time`
-- field 2:  value to group by
+
+- field 1: `timestamp` field with an alias of `time`
+- field 2: value to group by
 - field 3+: the metric values
 
 For example:
+
 ```sql
 SELECT pickup_datetime AS time, cab_type, avg(fare_amount) AS avg_fare_amount
 FROM trips
@@ -109,24 +111,25 @@ Table visualizations will always be available for any valid QuestDB query.
 To simplify syntax and to allow for dynamic parts, like date range filters, the query can contain macros.
 
 Here is an example of a query with a macro that will use Grafana's time filter:
+
 ```sql
 SELECT desginated_timestamp, data_stuff
 FROM test_data
 WHERE $__timeFilter(desginated_timestamp)
 ```
 
-| Macro                                        | Description                                                                                                                                                                         | Output example                                                                                     |
-|----------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| *$__timeFilter(columnName)*                  | Replaced by a conditional that filters the data (using the provided column) based on the time range of the panel in seconds                                                         | `timestamp >= cast(1706263425598000 as timestamp) AND timestamp <= cast(1706285057560000 as timestamp)` |
-| *$__fromTime*                                | Replaced by the starting time of the range of the panel cast to timestamp                                                                                                           | `cast(1706263425598000 as timestamp)`                                                              |
-| *$__toTime*                                  | Replaced by the ending time of the range of the panel cast to timestamp                                                                                                             | `cast(1706285057560000 as timestamp)`                                                              |
-| *$__sampleByInterval*                        | Replaced by the interval followed by unit: d, h, s or T (millisecond). Example: 1d, 5h, 20s, 1T.                                                                                    | `20s` (20 seconds) , `1T` (1 millisecond)                                                          |
-| *$__conditionalAll(condition, $templateVar)* | Replaced by the first parameter when the template variable in the second parameter does not select every value. Replaced by the 1=1 when the template variable selects every value. | `condition` or `1=1`                                                                               |
+| Macro                                          | Description                                                                                                                                                                         | Output example                                                                                          |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| _$\_\_timeFilter(columnName)_                  | Replaced by a conditional that filters the data (using the provided column) based on the time range of the panel in seconds                                                         | `timestamp >= cast(1706263425598000 as timestamp) AND timestamp <= cast(1706285057560000 as timestamp)` |
+| _$\_\_fromTime_                                | Replaced by the starting time of the range of the panel cast to timestamp                                                                                                           | `cast(1706263425598000 as timestamp)`                                                                   |
+| _$\_\_toTime_                                  | Replaced by the ending time of the range of the panel cast to timestamp                                                                                                             | `cast(1706285057560000 as timestamp)`                                                                   |
+| _$\_\_sampleByInterval_                        | Replaced by the interval followed by unit: d, h, s or T (millisecond). Example: 1d, 5h, 20s, 1T.                                                                                    | `20s` (20 seconds) , `1T` (1 millisecond)                                                               |
+| _$\_\_conditionalAll(condition, $templateVar)_ | Replaced by the first parameter when the template variable in the second parameter does not select every value. Replaced by the 1=1 when the template variable selects every value. | `condition` or `1=1`                                                                                    |
 
 The plugin also supports notation using braces {}. Use this notation when queries are needed inside parameters.
 
-Additionally, Grafana has the built-in [`$__interval` macro][query-transform-data-query-options], which calculates an interval in seconds or milliseconds. 
-It shouldn't be used with SAMPLE BY because of time unit incompatibility, 1ms vs 1T (expected by QuestDB). Use `$__sampleByInterval` instead.  
+Additionally, Grafana has the built-in [`$__interval` macro][query-transform-data-query-options], which calculates an interval in seconds or milliseconds.
+It shouldn't be used with SAMPLE BY because of time unit incompatibility, 1ms vs 1T (expected by QuestDB). Use `$__sampleByInterval` instead.
 
 ### Templates and variables
 
@@ -144,12 +147,12 @@ Ad hoc filters allow you to add key/value filters that are automatically added
 to all metric queries that use the specified data source, without being
 explicitly used in queries.
 
-By default, Ad Hoc filters will be populated with all Tables and Columns.  If
+By default, Ad Hoc filters will be populated with all Tables and Columns. If
 you have a default database defined in the Datasource settings, all Tables from
 that database will be used to populate the filters. As this could be
 slow/expensive, you can introduce a second variable to allow limiting the
 Ad Hoc filters. It should be a `constant` type named `questdb_adhoc_query`
-and can contain: a comma delimited list of tables  to show only columns for one or more tables.
+and can contain: a comma delimited list of tables to show only columns for one or more tables.
 
 For more information on Ad Hoc filters, check the [Grafana
 docs](https://grafana.com/docs/grafana/latest/variables/variable-types/add-ad-hoc-filters/)
@@ -162,7 +165,7 @@ You may choose to hide this variable from view as it serves no further purpose.
 
 ## Learn more
 
-* Add [Annotations](https://grafana.com/docs/grafana/latest/dashboards/annotations/).
-* Configure and use [Templates and variables](https://grafana.com/docs/grafana/latest/variables/).
-* Add [Transformations](https://grafana.com/docs/grafana/latest/panels/transformations/).
-* Set up alerting; refer to [Alerts overview](https://grafana.com/docs/grafana/latest/alerting/).
+- Add [Annotations](https://grafana.com/docs/grafana/latest/dashboards/annotations/).
+- Configure and use [Templates and variables](https://grafana.com/docs/grafana/latest/variables/).
+- Add [Transformations](https://grafana.com/docs/grafana/latest/panels/transformations/).
+- Set up alerting; refer to [Alerts overview](https://grafana.com/docs/grafana/latest/alerting/).
