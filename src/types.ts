@@ -33,7 +33,6 @@ export interface QuestDBConfig extends DataSourceJsonData {
   tlsMode?: PostgresTLSModes;
   tlsConfigurationMethod?: PostgresTLSMethods;
 
-  tlsCACertFile?: string;
   tlsClientCertFile?: string;
   tlsClientKeyFile?: string;
 }

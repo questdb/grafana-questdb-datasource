@@ -7,7 +7,6 @@ datasources:
       port: 8812
       username: admin
       tlsMode: disable
-      # tlsCACertFile: <string>
       # timeout: <seconds>
       # queryTimeout: <seconds>
       maxOpenConnections: 100

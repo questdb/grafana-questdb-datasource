@@ -89,47 +89,6 @@ func TestLoadSettings(t *testing.T) {
 				expectedErr: nil,
 			},
 			{
-				name: "should parse json with tls and file-path mode",
-				args: args{
-					config: backend.DataSourceInstanceSettings{
-						UID: "ds-uid",
-						JSONData: []byte(`{ "server": "test", "port": 8812, "username": "john",
-											"enableSecureSocksProxy": true, "tlsMode": "verify-ca", "tlsConfigurationMethod": "file-path",
-											"tlsCACertFile": "/var/caCertFile", "tlsClientCertFile": "/var/clientCertFile", "tlsClientKeyFile": "/var/clientKeyFile",
-											"timeout": 10, "queryTimeout": 50, "maxOpenConnections": 100, "maxIdleConnections": 100, "maxConnectionLifetime": 14400 }`),
-						DecryptedSecureJSONData: map[string]string{"password": "rambo", "secureSocksProxyPassword": "test"},
-					},
-				},
-				expectedSettings: Settings{
-					Server:                "test",
-					Port:                  8812,
-					Username:              "john",
-					Password:              "rambo",
-					TlsCACertFile:         "/var/caCertFile",
-					TlsClientCertFile:     "/var/clientCertFile",
-					TlsClientKeyFile:      "/var/clientKeyFile",
-					Timeout:               10,
-					QueryTimeout:          50,
-					MaxOpenConnections:    100,
-					MaxIdleConnections:    100,
-					MaxConnectionLifetime: 14400,
-					TlsMode:               "verify-ca",
-					ConfigurationMethod:   "file-path",
-					ProxyOptions: &proxy.Options{
-						Enabled: true,
-						Auth: &proxy.AuthOptions{
-							Username: "ds-uid",
-							Password: "test",
-						},
-						Timeouts: &proxy.TimeoutOptions{
-							Timeout:   10 * time.Second,
-							KeepAlive: proxy.DefaultTimeoutOptions.KeepAlive,
-						},
-					},
-				},
-				expectedErr: nil,
-			},
-			{
 				name: "should converting string values to the correct type",
 				args: args{
 					config: backend.DataSourceInstanceSettings{
