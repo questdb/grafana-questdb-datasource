@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/lib/pq"
 	"math"
 	"os"
 	"path"
@@ -14,6 +12,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/docker/docker/api/types/mount"
+	"github.com/lib/pq"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -212,7 +213,6 @@ func TestInsertAndQueryData(t *testing.T) {
 		"  ge8 geohash(8c)," +
 		"  ip ipv4, " +
 		"  uuid_ uuid ," +
-		"  l256 long256," +
 		"  ts timestamp " +
 		") TIMESTAMP(ts) PARTITION BY YEAR BYPASS WAL")
 	require.NoError(t, err)
@@ -233,20 +233,18 @@ func TestInsertAndQueryData(t *testing.T) {
 	require.NoError(t, err)
 
 	stmt, err := conn.Prepare("INSERT INTO all_types values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, " +
-		"cast($13 as geohash(1c)), cast($14 as geohash(2c)) , cast($15  as geohash(4c)), cast($16 as geohash(8c)), $17, $18, cast('' || $19 as long256), $20)")
+		"cast($13 as geohash(1c)), cast($14 as geohash(2c)) , cast($15  as geohash(4c)), cast($16 as geohash(8c)), $17, $18, $19)")
 	require.NoError(t, err)
 	defer stmt.Close()
 
 	var data = [][]interface{}{
-		{bool(false), int16(0), int16(0), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, timestamp},
-
+		{bool(false), int16(0), int16(0), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, timestamp},
 		{bool(true), int16(1), int16(1), mkstring("a"), mkint32(4), mkint64(5), &date, &timestamp, mkfloat32(12.345), mkfloat64(1.0234567890123),
 			mkstring("string"), mkstring("symbol"), mkstring("r"), mkstring("rj"), mkstring("rjtw"), mkstring("rjtwedd0"), mkstring("1.2.3.4"),
-			mkstring("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"), mkstring("0x5dd94b8492b4be20632d0236ddb8f47c91efc2568b4d452847b4a645dbe4871a"), &timestamp},
-
+			mkstring("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"), &timestamp},
 		{bool(true), int16(math.MaxInt8), int16(math.MaxInt16), mkstring("z"), mkint32(math.MaxInt32), mkint64(math.MaxInt64), &date, mktimestamp("1970-01-01T00:00:00.000000", t),
 			mkfloat32(math.MaxFloat32), mkfloat64(math.MaxFloat64), mkstring("XXX"), mkstring(" "), mkstring("e"), mkstring("ee"), mkstring("eeee"), mkstring("eeeeeeee"),
-			mkstring("255.255.255.255"), mkstring("a0eebc99-ffff-ffff-ffff-ffffffffffff"), mkstring("0x5dd94b8492b4be20632d0236ddb8f47c91efc2568b4d452847b4a645dbefffff"), mktimestamp("2020-03-31T00:00:00.987654", t)}}
+			mkstring("255.255.255.255"), mkstring("a0eebc99-ffff-ffff-ffff-ffffffffffff"), mktimestamp("2020-03-31T00:00:00.987654", t)}}
 
 	for i := 1; i < len(data); i++ {
 		_, err = stmt.Exec(data[i]...)

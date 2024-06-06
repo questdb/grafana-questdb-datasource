@@ -22,7 +22,6 @@ describe('ConfigEditor', () => {
     expect(screen.getByPlaceholderText(Components.ConfigEditor.Username.placeholder)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(Components.ConfigEditor.Password.placeholder)).toBeInTheDocument();
     expect(screen.getByText(Components.ConfigEditor.TlsMode.placeholder)).toBeInTheDocument();
-    expect(screen.getByText(Components.ConfigEditor.TlsMethod.label)).toBeInTheDocument();
   });
   it('with password', async () => {
     render(
@@ -63,7 +62,7 @@ describe('ConfigEditor', () => {
     expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSClientCert.placeholder)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSClientKey.placeholder)).not.toBeInTheDocument();
   });
-  it('with tlsMode and filePath tlsMethod', async () => {
+  it('with verifyCA tlsMode and fileContent tlsMethod', async () => {
     render(
       <ConfigEditor
         {...mockConfigEditorProps()}
@@ -72,15 +71,14 @@ describe('ConfigEditor', () => {
           jsonData: {
             ...mockConfigEditorProps().options.jsonData,
             tlsMode: PostgresTLSModes.verifyCA,
-            tlsConfigurationMethod: PostgresTLSMethods.filePath,
+            tlsConfigurationMethod: PostgresTLSMethods.fileContent,
           },
         }}
       />
     );
     expect(screen.queryByText(PostgresTLSModes.verifyCA)).toBeInTheDocument();
-    expect(screen.queryByText(Components.ConfigEditor.TlsMethod.placeholder)).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSCACertFile.placeholder)).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSCACert.placeholder)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSCACertFile.placeholder)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSCACert.placeholder)).toBeInTheDocument();
   });
 
   it('with verifyFull tlsMode and fileContent tlsMethod', async () => {
@@ -98,7 +96,6 @@ describe('ConfigEditor', () => {
       />
     );
     expect(screen.queryByText(PostgresTLSModes.verifyFull)).toBeInTheDocument();
-    expect(screen.queryByText(Components.ConfigEditor.TlsMethod.placeholder)).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSCACertFile.placeholder)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(Components.ConfigEditor.TLSCACert.placeholder)).toBeInTheDocument();
   });

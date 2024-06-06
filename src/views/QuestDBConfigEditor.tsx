@@ -8,7 +8,7 @@ import {
 import { Field, Input, SecretInput, Select, Switch } from '@grafana/ui';
 import { CertificationKey } from '../components/ui/CertificationKey';
 import { Components } from './../selectors';
-import { PostgresTLSModes, PostgresTLSMethods, QuestDBConfig, QuestDBSecureConfig } from './../types';
+import { PostgresTLSModes, QuestDBConfig, QuestDBSecureConfig } from './../types';
 import { gte } from 'semver';
 import { ConfigSection, DataSourceDescription } from '@grafana/experimental';
 import { config } from '@grafana/runtime';
@@ -38,15 +38,6 @@ export const ConfigEditor: React.FC<Props> = (props) => {
       jsonData: {
         ...options.jsonData,
         tlsMode: mode,
-      },
-    });
-  };
-  const onTlsConfigurationMethodChange = (method?: PostgresTLSMethods) => {
-    onOptionsChange({
-      ...options,
-      jsonData: {
-        ...options.jsonData,
-        tlsConfigurationMethod: method,
       },
     });
   };
@@ -117,11 +108,6 @@ export const ConfigEditor: React.FC<Props> = (props) => {
     { value: PostgresTLSModes.require, label: 'require' },
     { value: PostgresTLSModes.verifyCA, label: 'verify-ca' },
     { value: PostgresTLSModes.verifyFull, label: 'verify-full' },
-  ];
-
-  const tlsMethods: Array<SelectableValue<PostgresTLSMethods>> = [
-    { value: PostgresTLSMethods.filePath, label: 'File system path' },
-    { value: PostgresTLSMethods.fileContent, label: 'Certificate content' },
   ];
 
   return (
@@ -307,86 +293,34 @@ export const ConfigEditor: React.FC<Props> = (props) => {
 
         {jsonData.tlsMode && jsonData.tlsMode !== PostgresTLSModes.disable ? (
           <>
-            <Field
-              label={Components.ConfigEditor.TlsMethod.label}
-              description={Components.ConfigEditor.TlsMethod.tooltip}
-            >
-              <Select
-                options={tlsMethods}
-                value={jsonData.tlsConfigurationMethod || PostgresTLSMethods.filePath}
-                onChange={(e) => onTlsConfigurationMethodChange(e.value)}
-                placeholder={Components.ConfigEditor.TlsMethod.placeholder}
-                width={40}
+            <>
+              <CertificationKey
+                hasCert={!!hasTLSCACert}
+                onChange={(e) => onCertificateChangeFactory('tlsCACert', e.currentTarget.value)}
+                placeholder={Components.ConfigEditor.TLSCACert.placeholder}
+                label={Components.ConfigEditor.TLSCACert.label}
+                tooltip={Components.ConfigEditor.TLSCACert.tooltip}
+                onClick={() => onResetClickFactory('tlsCACert')}
               />
-            </Field>
-
-            {jsonData.tlsConfigurationMethod === PostgresTLSMethods.fileContent ? (
-              <>
-                <CertificationKey
-                  hasCert={!!hasTLSCACert}
-                  onChange={(e) => onCertificateChangeFactory('tlsCACert', e.currentTarget.value)}
-                  placeholder={Components.ConfigEditor.TLSCACert.placeholder}
-                  label={Components.ConfigEditor.TLSCACert.label}
-                  onClick={() => onResetClickFactory('tlsCACert')}
-                />
-                {false && (
-                  <>
-                    <CertificationKey
-                      hasCert={!!hasTLSClientCert}
-                      onChange={(e) => onCertificateChangeFactory('tlsClientCert', e.currentTarget.value)}
-                      placeholder={Components.ConfigEditor.TLSClientCert.placeholder}
-                      label={Components.ConfigEditor.TLSClientCert.label}
-                      onClick={() => onResetClickFactory('tlsClientCert')}
-                    />
-                    <CertificationKey
-                      hasCert={!!hasTLSClientKey}
-                      placeholder={Components.ConfigEditor.TLSClientKey.placeholder}
-                      label={Components.ConfigEditor.TLSClientKey.label}
-                      onChange={(e) => onCertificateChangeFactory('tlsClientKey', e.currentTarget.value)}
-                      onClick={() => onResetClickFactory('tlsClientKey')}
-                    />
-                  </>
-                )}
-              </>
-            ) : (
-              <>
-                <Field
-                  label={Components.ConfigEditor.TLSCACertFile.label}
-                  description={Components.ConfigEditor.TLSCACertFile.placeholder}
-                >
-                  <Input
-                    value={jsonData.tlsCACertFile || ''}
-                    onChange={onUpdateDatasourceJsonDataOption(props, 'tlsCACertFile')}
-                    width={40}
-                    placeholder={Components.ConfigEditor.TLSCACertFile.placeholder}
+              {false && (
+                <>
+                  <CertificationKey
+                    hasCert={!!hasTLSClientCert}
+                    onChange={(e) => onCertificateChangeFactory('tlsClientCert', e.currentTarget.value)}
+                    placeholder={Components.ConfigEditor.TLSClientCert.placeholder}
+                    label={Components.ConfigEditor.TLSClientCert.label}
+                    onClick={() => onResetClickFactory('tlsClientCert')}
                   />
-                </Field>
-                {false && (
-                  <>
-                    <Field
-                      label={Components.ConfigEditor.TLSClientCertFile.label}
-                      description={Components.ConfigEditor.TLSClientCertFile.placeholder}
-                    >
-                      <Input
-                        value={jsonData.tlsClientCertFile || ''}
-                        onChange={onUpdateDatasourceJsonDataOption(props, 'tlsClientCertFile')}
-                        width={40}
-                      />
-                    </Field>
-                    <Field
-                      label={Components.ConfigEditor.TLSClientKeyFile.label}
-                      description={Components.ConfigEditor.TLSClientKeyFile.placeholder}
-                    >
-                      <Input
-                        value={jsonData.tlsClientKeyFile || ''}
-                        onChange={onUpdateDatasourceJsonDataOption(props, 'tlsClientKeyFile')}
-                        width={40}
-                      />
-                    </Field>
-                  </>
-                )}
-              </>
-            )}
+                  <CertificationKey
+                    hasCert={!!hasTLSClientKey}
+                    placeholder={Components.ConfigEditor.TLSClientKey.placeholder}
+                    label={Components.ConfigEditor.TLSClientKey.label}
+                    onChange={(e) => onCertificateChangeFactory('tlsClientKey', e.currentTarget.value)}
+                    onClick={() => onResetClickFactory('tlsClientKey')}
+                  />
+                </>
+              )}
+            </>
           </>
         ) : null}
       </ConfigSection>
