@@ -32,7 +32,6 @@ type Settings struct {
 	TlsMode             string `json:"tlsMode"`
 	ConfigurationMethod string `json:"tlsConfigurationMethod"`
 
-	TlsCACertFile     string `json:"tlsCaCertFile"`
 	TlsClientCertFile string `json:"tlsClientCertFile"`
 	TlsClientKeyFile  string `json:"tlsClientKeyFile"`
 }
@@ -130,9 +129,6 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings,
 		settings.TlsMode = jsonData["tlsMode"].(string)
 	}
 
-	if jsonData["tlsCACertFile"] != nil {
-		settings.TlsCACertFile = jsonData["tlsCACertFile"].(string)
-	}
 	if jsonData["tlsClientCertFile"] != nil {
 		settings.TlsClientCertFile = jsonData["tlsClientCertFile"].(string)
 	}

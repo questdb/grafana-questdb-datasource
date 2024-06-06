@@ -171,20 +171,6 @@ A24pDtdOHydwtSB5+zFqFLfmVZplQM/g5kb4so70Yw==
 				connStr += fmt.Sprintf(" sslcert='%s' sslkey='%s'", escape(tlsClientCert), escape(tlsClientKey))
 			}
 
-		} else if settings.ConfigurationMethod == "file-path" {
-			// Attach root certificate if provided
-			if settings.TlsCACertFile != "" {
-				log.DefaultLogger.Debug("Setting server root certificate", "tlsRootCertFile", settings.TlsCACertFile)
-				connStr += fmt.Sprintf(" sslrootcert='%s'", escape(settings.TlsCACertFile))
-			}
-
-			// Attach client certificate and key if both are provided
-			if settings.TlsClientCertFile != "" && settings.TlsClientKeyFile != "" {
-				log.DefaultLogger.Debug("Setting TLS/SSL client auth", "tlsCertFile", settings.TlsClientCertFile, "tlsKeyFile", settings.TlsClientKeyFile)
-				connStr += fmt.Sprintf(" sslcert='%s' sslkey='%s'", escape(settings.TlsClientCertFile), escape(settings.TlsClientKeyFile))
-			} else if settings.TlsClientCertFile != "" || settings.TlsClientKeyFile != "" {
-				return "", fmt.Errorf("TLS/SSL client certificate and key files must both be specified")
-			}
 		} else if settings.ConfigurationMethod != "" {
 			return "", errors.New(fmt.Sprintf("invalid ssl configuration method: %s", settings.ConfigurationMethod))
 		}

@@ -36,11 +36,6 @@ export const Components = {
       placeholder: 'Client Key. Begins with -----BEGIN RSA PRIVATE KEY-----',
     },
 
-    TLSCACertFile: {
-      label: 'TLS/SSL Root Certificate File',
-      placeholder:
-        'If the selected TLS/SSL mode requires a server root certificate, provide the path to the file here.',
-    },
     TLSClientCertFile: {
       label: 'TLS/SSL Client Certificate File',
       placeholder:
