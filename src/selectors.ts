@@ -60,7 +60,7 @@ export const Components = {
     TlsMode: {
       label: 'TLS/SSL Mode',
       tooltip:
-        'This option determines whether or with what priority a secure TLS/SSL TCP/IP connection will be negotiated with the server. For QuestDB Cloud, use "require". For self-hosted QuestDB, use "disable".',
+        'This option determines whether or with what priority a secure TLS/SSL TCP/IP connection will be negotiated with the server. For QuestDB Enterprise, use "require". For self-hosted QuestDB, use "disable".',
       placeholder: 'TLS/SSL Mode',
     },
     TlsMethod: {
