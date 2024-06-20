@@ -47,7 +47,15 @@ Grafana’s provisioning system. To read about how it works, including all the
 settings that you can set for this data source, refer to [Provisioning Grafana
 data sources](https://grafana.com/docs/grafana/latest/administration/provisioning/#data-sources).
 
-Here are some provisioning examples for this data source using basic authentication:
+Note that the plugin must be previously installed. If you
+are using Docker and want to automate installation, you can set the [GF_INSTALL_PLUGINS environment
+variable](https://grafana.com/docs/grafana/latest/setup-grafana/configure-docker/#install-plugins-in-the-docker-container)
+
+```bash
+docker run -p 3000:3000 -e GF_INSTALL_PLUGINS=questdb-questdb-datasource grafana/grafana-oss
+```
+
+This is an example provisioning file for this data source using the default configuration for QuestDB Open Source.
 
 ```yaml
 apiVersion: 1
@@ -68,6 +76,9 @@ datasources:
       password: quest
       # tlsCACert: <string>
 ```
+
+If you are using QuestDB Enterprise and have enabled TLS, you would need to change
+`tlsMode: require` in the example above.
 
 ## Building queries
 
