@@ -290,7 +290,7 @@ const getLimit = (limit?: string): string => {
 
 const escapeFields = (fields: string[]): string[] => {
   return fields.map((f) => {
-    return f.match(/^\d/) ? `"${f}"` : f;
+    return f.match(/(^\d|\s|\$|\&|\|)/im) ? `"${f}"` : f;
   });
 };
 
