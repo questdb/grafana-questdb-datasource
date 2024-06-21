@@ -295,7 +295,7 @@ export const QueryBuilder = (props: QueryBuilderProps) => {
         fieldsList={getOrderByFields(builder, fieldsList)}
       />
       <EditorRow>
-        <LimitEditor limit={builder.limit || 100} onLimitChange={onLimitChange} />
+        <LimitEditor limit={builder.limit} onLimitChange={onLimitChange} />
       </EditorRow>
     </EditorRows>
   ) : null;
