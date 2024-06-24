@@ -9,6 +9,7 @@ import { GroupBase, OptionsOrGroups } from 'react-select';
 interface FillEditorProps {
   fills: string[];
   onFillsChange: (fills: string[]) => void;
+  isDisabled: boolean;
 }
 
 const fillModes: SelectableValue[] = [];
@@ -85,6 +86,8 @@ export const SampleByFillEditor = (props: FillEditorProps) => {
         width={50}
         isClearable={true}
         hideSelectedOptions={true}
+        placeholder={props.isDisabled ? 'Table is missing designated timestamp' : 'Choose'}
+        disabled={props.isDisabled}
       />
     </EditorField>
   );

@@ -230,6 +230,7 @@ export const QueryBuilder = (props: QueryBuilderProps) => {
             onGroupByChange={onGroupByChange}
             fieldsList={fieldsList}
             labelAndTooltip={selectors.components.QueryEditor.QueryBuilder.SAMPLE_BY}
+            isDisabled={builder.timeField.length === 0}
           />
         </EditorRow>
       )}
@@ -264,7 +265,11 @@ export const QueryBuilder = (props: QueryBuilderProps) => {
 
       {builder.mode === BuilderMode.Trend && (
         <EditorRow>
-          <SampleByFillEditor fills={builder.sampleByFill || []} onFillsChange={onFillChange} />
+          <SampleByFillEditor
+            fills={builder.sampleByFill || []}
+            onFillsChange={onFillChange}
+            isDisabled={builder.timeField.length === 0}
+          />
         </EditorRow>
       )}
 
@@ -275,6 +280,7 @@ export const QueryBuilder = (props: QueryBuilderProps) => {
             onGroupByChange={onGroupByChange}
             fieldsList={fieldsList}
             labelAndTooltip={selectors.components.QueryEditor.QueryBuilder.GROUP_BY}
+            isDisabled={builder.timeField.length === 0}
           />
         </EditorRow>
       )}
