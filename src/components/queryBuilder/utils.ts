@@ -808,9 +808,6 @@ function formatStringValue(currentFilter: string): string {
   if (Array.isArray(currentFilter)) {
     currentFilter = currentFilter[0];
   }
-  if (currentFilter.startsWith('$')) {
-    return ` ${currentFilter || ''}`;
-  }
   return ` '${currentFilter || ''}'`;
 }
 
