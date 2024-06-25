@@ -313,7 +313,7 @@ export const defaultBuilderQuery: Omit<QuestDBBuilderQuery, 'refId'> = {
   builderOptions: {
     mode: BuilderMode.List,
     fields: [],
-    limit: '100',
+    limit: '',
     timeField: '',
   },
   format: Format.TABLE,

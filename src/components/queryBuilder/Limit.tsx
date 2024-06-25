@@ -8,7 +8,7 @@ interface LimitEditorProps {
   onLimitChange: (limit: string) => void;
 }
 export const LimitEditor = (props: LimitEditorProps) => {
-  const [limit, setLimit] = useState(props.limit || '100');
+  const [limit, setLimit] = useState(props.limit);
   const { label, tooltip } = selectors.components.QueryEditor.QueryBuilder.LIMIT;
 
   return (

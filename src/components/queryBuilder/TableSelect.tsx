@@ -21,7 +21,7 @@ export const TableSelect = (props: Props) => {
 
   useEffect(() => {
     async function fetchTables() {
-      const tables = await datasource.fetchTables();
+      const tables = (await datasource.fetchTables()).sort((a, b) => a.tableName.localeCompare(b.tableName));
       const values = tables.map((t) => ({ label: t.tableName, value: t.tableName }));
       // Add selected value to the list if it does not exist.
       if (table && !tables.find((x) => x.tableName === table) && props.mode !== BuilderMode.Trend) {

@@ -10,6 +10,8 @@ data from within Grafana.
 For detailed instructions on how to install the plugin on Grafana Cloud or
 locally, please check out the [Plugin installation docs](https://grafana.com/docs/grafana/latest/plugins/installation/).
 
+Read the guide on QuestDB website: [Third-party Tools - Grafana](https://questdb.io/docs/third-party-tools/grafana/).
+
 ## Configuration
 
 ### QuestDB user for the data source
@@ -179,3 +181,4 @@ You may choose to hide this variable from view as it serves no further purpose.
 - Configure and use [Templates and variables](https://grafana.com/docs/grafana/latest/variables/).
 - Add [Transformations](https://grafana.com/docs/grafana/latest/panels/transformations/).
 - Set up alerting; refer to [Alerts overview](https://grafana.com/docs/grafana/latest/alerting/).
+- Read the [Plugin guide](https://questdb.io/docs/third-party-tools/grafana/) on QuestDB website
