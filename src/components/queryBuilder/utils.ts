@@ -844,7 +844,6 @@ export function getOper(v: string): FilterOperator {
 }
 
 function removeQuotesForMultiVariables(val: string, templateVars: VariableWithMultiSupport[]): string {
-  console.log(val);
   const multiVariableInWhereString = (tv: VariableWithMultiSupport) =>
     tv.multi && (val.includes(`\${${tv.name}}`) || val.includes(`$${tv.name}`));
 
