@@ -1,3 +1,4 @@
+import { VariableWithMultiSupport } from '@grafana/data';
 import {
   astVisitor,
   Expr,
@@ -159,7 +160,10 @@ const getSampleByQuery = (
   return `SELECT ${metricsQuery} FROM ${escaped(table)}`;
 };
 
-const getFilters = (filters: Filter[]): { filters: string; hasTimeFilter: boolean } => {
+const getFilters = (
+  filters: Filter[],
+  templateVars: VariableWithMultiSupport[]
+): { filters: string; hasTimeFilter: boolean } => {
   let hasTsFilter = false;
 
   let combinedFilters = filters.reduce((previousValue, currentFilter, currentIndex) => {
@@ -197,7 +201,15 @@ const getFilters = (filters: Filter[]): { filters: string; hasTimeFilter: boolea
       if (isNumberType(currentFilter.type)) {
         filter += ` (${values?.map((v) => v.trim()).join(', ')} )`;
       } else {
-        filter += ` (${values?.map((v) => formatStringValue(v).trim()).join(', ')} )`;
+        filter += ` (${values
+          ?.map((v) =>
+            formatStringValue(
+              v,
+              templateVars,
+              currentFilter.operator === FilterOperator.In || currentFilter.operator === FilterOperator.NotIn
+            ).trim()
+          )
+          .join(', ')} )`;
       }
     } else if (isBooleanFilter(currentFilter)) {
       filter += ` ${currentFilter.value}`;
@@ -217,7 +229,7 @@ const getFilters = (filters: Filter[]): { filters: string; hasTimeFilter: boolea
         }
       }
     } else {
-      filter += formatStringValue(currentFilter.value || '');
+      filter += formatStringValue(currentFilter.value || '', templateVars);
     }
 
     if (notOperator) {
@@ -235,7 +247,7 @@ const getFilters = (filters: Filter[]): { filters: string; hasTimeFilter: boolea
     }
   }, '');
 
-  return { filters: combinedFilters, hasTimeFilter: hasTsFilter };
+  return { filters: removeQuotesForMultiVariables(combinedFilters, templateVars), hasTimeFilter: hasTsFilter };
 };
 
 const getSampleBy = (sampleByMode: SampleByAlignToMode, sampleByValue?: string, sampleByFill?: string[]): string => {
@@ -294,14 +306,17 @@ const escapeFields = (fields: string[]): string[] => {
   });
 };
 
-export const getSQLFromQueryOptions = (options: SqlBuilderOptions): string => {
+export const getSQLFromQueryOptions = (
+  options: SqlBuilderOptions,
+  templateVars: VariableWithMultiSupport[]
+): string => {
   const limit = options.limit ? getLimit(options.limit) : '';
   const fields = escapeFields(options.fields || []);
   let query = ``;
   switch (options.mode) {
     case BuilderMode.Aggregate:
       query += getAggregationQuery(options.table, fields, options.metrics, options.groupBy);
-      const aggregateFilters = getFilters(options.filters || []);
+      const aggregateFilters = getFilters(options.filters || [], templateVars);
       if (aggregateFilters.filters) {
         query += ` WHERE${aggregateFilters.filters}`;
       }
@@ -309,7 +324,7 @@ export const getSQLFromQueryOptions = (options: SqlBuilderOptions): string => {
       break;
     case BuilderMode.Trend:
       query += getSampleByQuery(options.table, fields, options.metrics, options.groupBy, options.timeField);
-      const sampleByFilters = getFilters(options.filters || []);
+      const sampleByFilters = getFilters(options.filters || [], templateVars);
       if (options.timeField || sampleByFilters.filters.length > 0) {
         query += ' WHERE';
 
@@ -328,7 +343,7 @@ export const getSQLFromQueryOptions = (options: SqlBuilderOptions): string => {
     case BuilderMode.List:
     default:
       query += getListQuery(options.table, fields);
-      const filters = getFilters(options.filters || []);
+      const filters = getFilters(options.filters || [], templateVars);
       if (filters.filters) {
         query += ` WHERE${filters.filters}`;
       }
@@ -337,7 +352,6 @@ export const getSQLFromQueryOptions = (options: SqlBuilderOptions): string => {
 
   query += getOrderBy(options.orderBy);
   query += limit;
-
   return query;
 };
 
@@ -804,11 +818,16 @@ function getMetricsFromAst(selectClauses: SelectedColumn[] | null): {
   return { metrics, fields };
 }
 
-function formatStringValue(currentFilter: string): string {
-  if (Array.isArray(currentFilter)) {
-    currentFilter = currentFilter[0];
-  }
-  return ` '${currentFilter || ''}'`;
+function formatStringValue(
+  currentFilter: string,
+  templateVars: VariableWithMultiSupport[],
+  multipleValue?: boolean
+): string {
+  const filter = Array.isArray(currentFilter) ? currentFilter[0] : currentFilter;
+  const varConfigForFilter = templateVars.find((tv) => tv.name === filter.substring(1));
+  return filter.startsWith('$') && (multipleValue || varConfigForFilter?.current.value.length === 1)
+    ? ` ${filter || ''}`
+    : ` '${filter || ''}'`;
 }
 
 function escaped(object: string) {
@@ -822,4 +841,16 @@ export const operMap = new Map<string, FilterOperator>([
 
 export function getOper(v: string): FilterOperator {
   return operMap.get(v) || FilterOperator.Equals;
+}
+
+function removeQuotesForMultiVariables(val: string, templateVars: VariableWithMultiSupport[]): string {
+  console.log(val);
+  const multiVariableInWhereString = (tv: VariableWithMultiSupport) =>
+    tv.multi && (val.includes(`\${${tv.name}}`) || val.includes(`$${tv.name}`));
+
+  if (templateVars.some((tv) => multiVariableInWhereString(tv))) {
+    val = val.replace(/'\)/g, ')');
+    val = val.replace(/\('\)/g, '(');
+  }
+  return val;
 }

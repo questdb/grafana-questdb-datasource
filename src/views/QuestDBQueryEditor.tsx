@@ -1,5 +1,5 @@
 import React from 'react';
-import { QueryEditorProps } from '@grafana/data';
+import { QueryEditorProps, VariableWithMultiSupport } from '@grafana/data';
 import { Datasource } from '../data/QuestDbDatasource';
 import {
   BuilderMode,
@@ -17,19 +17,22 @@ import { QueryBuilder } from 'components/queryBuilder/QueryBuilder';
 import { Preview } from 'components/queryBuilder/Preview';
 import { getFormat } from 'components/editor';
 import { QueryHeader } from 'components/QueryHeader';
+import { getTemplateSrv } from '@grafana/runtime';
 
 export type QuestDBQueryEditorProps = QueryEditorProps<Datasource, QuestDBQuery, QuestDBConfig>;
 
 const QuestDBEditorByType = (props: QuestDBQueryEditorProps) => {
   const { query, onChange, app } = props;
   const onBuilderOptionsChange = (builderOptions: SqlBuilderOptions) => {
-    const sql = getSQLFromQueryOptions(builderOptions);
+    const templateVars = getTemplateSrv().getVariables() as VariableWithMultiSupport[];
+    const sql = getSQLFromQueryOptions(builderOptions, templateVars);
     const format =
       query.selectedFormat === Format.AUTO
         ? builderOptions.mode === BuilderMode.Trend
           ? Format.TIMESERIES
           : Format.TABLE
         : query.selectedFormat;
+
     onChange({ ...query, queryType: QueryType.Builder, rawSql: sql, builderOptions, format });
   };
 
@@ -87,7 +90,7 @@ export const QuestDBQueryEditor = (props: QuestDBQueryEditorProps) => {
 
   return (
     <>
-      <QueryHeader query={query} onChange={onChange} onRunQuery={onRunQuery} datasource={props.datasource}/>
+      <QueryHeader query={query} onChange={onChange} onRunQuery={onRunQuery} datasource={props.datasource} />
       <QuestDBEditorByType {...props} />
     </>
   );
