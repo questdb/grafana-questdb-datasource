@@ -67,7 +67,7 @@ export const isIPv4Type = (type: string): boolean => {
 };
 
 export const isStringType = (type: string): boolean => {
-  return ['string', 'symbol', 'char'].includes(type?.toLowerCase());
+  return ['string', 'symbol', 'char', 'varchar'].includes(type?.toLowerCase());
 };
 
 export const isNullFilter = (filter: Filter): filter is NullFilter => {
