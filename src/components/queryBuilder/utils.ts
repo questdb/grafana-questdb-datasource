@@ -824,7 +824,8 @@ function formatStringValue(
   multipleValue?: boolean
 ): string {
   const filter = Array.isArray(currentFilter) ? currentFilter[0] : currentFilter;
-  const varConfigForFilter = templateVars.find((tv) => tv.name === filter.substring(1));
+  const extractedVariableName = filter.substring(1).replace(/[{}]/g, '');
+  const varConfigForFilter = templateVars.find((tv) => tv.name === extractedVariableName);
   return filter.startsWith('$') && (multipleValue || varConfigForFilter?.current.value.length === 1)
     ? ` ${filter || ''}`
     : ` '${filter || ''}'`;
