@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { SelectableValue } from '@grafana/data';
+import { SelectableValue, VariableWithMultiSupport } from '@grafana/data';
 import { RadioButtonGroup, ConfirmModal } from '@grafana/ui';
 import { getQueryOptionsFromSql, getSQLFromQueryOptions } from './queryBuilder/utils';
 import { selectors } from './../selectors';
 import { QuestDBQuery, QueryType, defaultBuilderQuery, SqlBuilderOptions, QuestDBSQLQuery } from 'types';
 import { isString } from 'lodash';
-import {Datasource} from "../data/QuestDbDatasource";
+import { Datasource } from '../data/QuestDbDatasource';
+import { getTemplateSrv } from '@grafana/runtime';
 
 interface QueryTypeSwitcherProps {
   query: QuestDBQuery;
@@ -26,6 +27,8 @@ export const QueryTypeSwitcher = ({ query, onChange, datasource }: QueryTypeSwit
     { label: queryTypeLabels.QueryBuilder, value: QueryType.Builder },
   ];
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const templateVars = getTemplateSrv().getVariables() as VariableWithMultiSupport[];
+
   async function onQueryTypeChange(queryType: QueryType, confirm = false) {
     if (query.queryType === QueryType.SQL && queryType === QueryType.Builder && !confirm) {
       const queryOptionsFromSql = await getQueryOptionsFromSql(query.rawSql);
@@ -43,7 +46,9 @@ export const QueryTypeSwitcher = ({ query, onChange, datasource }: QueryTypeSwit
           builderOptions = query.builderOptions;
           break;
         case QueryType.SQL:
-          builderOptions = (await getQueryOptionsFromSql(query.rawSql, datasource) as SqlBuilderOptions) || defaultBuilderQuery.builderOptions;
+          builderOptions =
+            ((await getQueryOptionsFromSql(query.rawSql, datasource)) as SqlBuilderOptions) ||
+            defaultBuilderQuery.builderOptions;
           break;
         default:
           builderOptions = defaultBuilderQuery.builderOptions;
@@ -53,13 +58,13 @@ export const QueryTypeSwitcher = ({ query, onChange, datasource }: QueryTypeSwit
         onChange({
           ...query,
           queryType,
-          rawSql: getSQLFromQueryOptions(builderOptions),
+          rawSql: getSQLFromQueryOptions(builderOptions, templateVars),
           meta: { builderOptions },
           format: query.format,
           selectedFormat: query.selectedFormat,
         });
       } else if (queryType === QueryType.Builder) {
-        onChange({ ...query, queryType, rawSql: getSQLFromQueryOptions(builderOptions), builderOptions });
+        onChange({ ...query, queryType, rawSql: getSQLFromQueryOptions(builderOptions, templateVars), builderOptions });
       }
     }
   }
