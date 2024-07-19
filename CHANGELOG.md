@@ -16,6 +16,14 @@ and this project adheres to
 - `Fixed` for any bug fixes.
 - `Security` in case of vulnerabilities.
 
+## 0.1.4
+
+## Changed
+
+- Enclose variables and column names in quotes in the generated SQL [#107](https://github.com/questdb/grafana-questdb-datasource/pull/107)
+- Add VARCHAR type [#107](https://github.com/questdb/grafana-questdb-datasource/pull/107)
+- Update docker-compose yaml to use QuestDB 8.0.3 [#107](https://github.com/questdb/grafana-questdb-datasource/pull/107)
+
 ## 0.1.3
 
 ## Changed

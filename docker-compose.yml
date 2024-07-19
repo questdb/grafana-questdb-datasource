@@ -16,7 +16,7 @@ services:
       - grafana
 
   questdb:
-    image: 'questdb/questdb:7.3.9'
+    image: 'questdb/questdb:8.0.3'
     container_name: 'grafana-questdb-server'
     ports:
       - '8812:8812'
@@ -29,4 +29,4 @@ services:
       - grafana
 
 networks:
-  grafana: 
+  grafana:
