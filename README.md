@@ -1,9 +1,13 @@
 # QuestDB data source for Grafana
 
+The QuestDB data source plugin enables querying and visualization of your 
+QuestDB time series data directly within Grafana. Compatible with all 
+editions—Grafana OSS, Grafana Enterprise, and Grafana Cloud—it also 
+fully supports both QuestDB OSS and QuestDB Enterprise.
+
+
 <img alt="Sql builder screenshot" src="https://github.com/questdb/grafana-questdb-datasource/blob/main/sql_builder.png?raw=true" width="800" >
 
-The QuestDB data source plugin allows you to query and visualize QuestDB
-data from within Grafana.
 
 ## Installation
 
