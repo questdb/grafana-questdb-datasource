@@ -1,6 +1,6 @@
 {
   "name": "questdb-questdb-datasource",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "QuestDB Datasource for Grafana",
   "engines": {
     "node": ">=18"
