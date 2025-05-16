@@ -38,6 +38,9 @@ jobs:
         with:
           node-version-file: '.nvmrc'
 
+      - name: Install Yarn
+        run: npm install -g yarn
+
       - name: Install yarn dependencies
         run: yarn install
         env:
