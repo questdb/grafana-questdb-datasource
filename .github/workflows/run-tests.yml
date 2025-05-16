@@ -10,6 +10,7 @@ on:
   # build may start failing due to questdb change
   schedule:
     - cron: '0 9 1 * *'
+  workflow_dispatch:
 
 jobs:
   run:
