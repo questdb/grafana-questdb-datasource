@@ -263,6 +263,20 @@ export const ConfigEditor: React.FC<Props> = (props) => {
           />
         </Field>
 
+        <Field
+          label={Components.ConfigEditor.MinInterval.label}
+          description={Components.ConfigEditor.MinInterval.tooltip}
+        >
+          <Input
+            name="timeInterval"
+            width={40}
+            value={jsonData.timeInterval || ''}
+            onChange={onUpdateDatasourceJsonDataOption(props, 'timeInterval')}
+            label={Components.ConfigEditor.MinInterval.label}
+            aria-label={Components.ConfigEditor.MinInterval.label}
+          />
+        </Field>
+
         {config.featureToggles['secureSocksDSProxyEnabled'] && gte(config.buildInfo.version, '10.0.0') && (
           <Field
             label={Components.ConfigEditor.SecureSocksProxy.label}

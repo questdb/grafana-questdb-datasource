@@ -28,6 +28,7 @@ type Settings struct {
 	MaxOpenConnections    int64 `json:"maxOpenConnections,omitempty"`
 	MaxIdleConnections    int64 `json:"maxIdleConnections,omitempty"`
 	MaxConnectionLifetime int64 `json:"maxConnectionLifetime,omitempty"`
+	TimeInterval          string `json:"timeInterval,omitempty"`
 
 	TlsMode             string `json:"tlsMode"`
 	ConfigurationMethod string `json:"tlsConfigurationMethod"`
@@ -180,6 +181,12 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings,
 			}
 		} else {
 			settings.MaxConnectionLifetime = int64(jsonData["maxConnectionLifetime"].(float64))
+		}
+	}
+
+	if jsonData["timeInterval"] != nil {
+		if timeInterval, ok := jsonData["timeInterval"].(string); ok {
+			settings.TimeInterval = timeInterval
 		}
 	}
 

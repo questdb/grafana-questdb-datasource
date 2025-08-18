@@ -24,11 +24,13 @@ export class Datasource extends DataSourceWithBackend<QuestDBQuery, QuestDBConfi
   settings: DataSourceInstanceSettings<QuestDBConfig>;
   adHocFilter: AdHocFilter;
   skipAdHocFilter = false; // don't apply adhoc filters to the query
+  interval?: string;
 
   constructor(instanceSettings: DataSourceInstanceSettings<QuestDBConfig>) {
     super(instanceSettings);
     this.settings = instanceSettings;
     this.adHocFilter = new AdHocFilter();
+    this.interval = instanceSettings.jsonData?.timeInterval;
   }
 
   async metricFindQuery(query: QuestDBQuery | string, options: any) {

@@ -94,6 +94,11 @@ export const Components = {
       tooltip:
         'The maximum amount of time (in seconds) a connection may be reused. If set to 0, connections are reused forever.',
     },
+    MinInterval: {
+      label: 'Min time interval',
+      tooltip:
+        'A lower limit for the auto-calculated interval used by $__sampleByInterval macro. Recommended to be set to write frequency, for example 1s if your data is written every second. Valid time identifiers are: ms, s, m, h, d',
+    },
   },
   QueryEditor: {
     CodeEditor: {
