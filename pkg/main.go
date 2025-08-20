@@ -8,7 +8,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
-	"github.com/grafana/sqlds/v2"
+	"github.com/grafana/sqlds/v4"
 	"github.com/questdb/grafana-questdb-datasource/pkg/plugin"
 )
 
@@ -21,5 +21,5 @@ func main() {
 
 func newDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	ds := sqlds.NewDatasource(&plugin.QuestDB{})
-	return ds.NewDatasource(settings)
+	return ds.NewDatasource(ctx, settings)
 }

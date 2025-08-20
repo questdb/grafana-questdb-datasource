@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/proxy"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -74,17 +72,6 @@ func TestLoadSettings(t *testing.T) {
 					MaxConnectionLifetime: 14400,
 					TlsMode:               "verify-full",
 					ConfigurationMethod:   "file-content",
-					ProxyOptions: &proxy.Options{
-						Enabled: true,
-						Auth: &proxy.AuthOptions{
-							Username: "ds-uid",
-							Password: "test",
-						},
-						Timeouts: &proxy.TimeoutOptions{
-							Timeout:   10 * time.Second,
-							KeepAlive: proxy.DefaultTimeoutOptions.KeepAlive,
-						},
-					},
 				},
 				expectedErr: nil,
 			},
@@ -106,7 +93,6 @@ func TestLoadSettings(t *testing.T) {
 					MaxOpenConnections:    10,
 					MaxIdleConnections:    5,
 					MaxConnectionLifetime: 3600,
-					ProxyOptions:          nil,
 				},
 				expectedErr: nil,
 			},

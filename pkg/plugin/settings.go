@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/proxy"
 )
 
 // Settings - data loaded from grafana settings database
@@ -22,12 +20,13 @@ type Settings struct {
 	TlsClientCert string
 	TlsClientKey  string
 
-	Timeout               int64 `json:"timeout,omitempty"`
-	QueryTimeout          int64 `json:"queryTimeout,omitempty"`
-	ProxyOptions          *proxy.Options
-	MaxOpenConnections    int64 `json:"maxOpenConnections,omitempty"`
-	MaxIdleConnections    int64 `json:"maxIdleConnections,omitempty"`
-	MaxConnectionLifetime int64 `json:"maxConnectionLifetime,omitempty"`
+	Timeout                int64  `json:"timeout,omitempty"`
+	QueryTimeout           int64  `json:"queryTimeout,omitempty"`
+	MaxOpenConnections     int64  `json:"maxOpenConnections,omitempty"`
+	MaxIdleConnections     int64  `json:"maxIdleConnections,omitempty"`
+	MaxConnectionLifetime  int64  `json:"maxConnectionLifetime,omitempty"`
+	TimeInterval           string `json:"timeInterval,omitempty"`
+	EnableSecureSocksProxy bool   `json:"enableSecureSocksProxy,omitempty"`
 
 	TlsMode             string `json:"tlsMode"`
 	ConfigurationMethod string `json:"tlsConfigurationMethod"`
@@ -136,18 +135,8 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings,
 		settings.TlsClientKeyFile = jsonData["tlsClientKeyFile"].(string)
 	}
 
-	// proxy options are only able to be loaded via environment variables
-	// currently, so we pass `nil` here so they are loaded with defaults
-	proxyOpts, err := config.ProxyOptions(nil)
-
-	if err == nil && proxyOpts != nil {
-		// the sdk expects the timeout to not be a string
-		timeout, err := strconv.ParseFloat(strconv.FormatInt(settings.Timeout, 10), 64)
-		if err == nil {
-			proxyOpts.Timeouts.Timeout = (time.Duration(timeout) * time.Second)
-		}
-
-		settings.ProxyOptions = proxyOpts
+	if jsonData["enableSecureSocksProxy"] != nil {
+		settings.EnableSecureSocksProxy = jsonData["enableSecureSocksProxy"].(bool)
 	}
 
 	if jsonData["maxOpenConnections"] != nil {

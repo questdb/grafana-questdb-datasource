@@ -262,7 +262,11 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             type="number"
           />
         </Field>
+      </ConfigSection>
 
+      <Divider />
+
+      <ConfigSection title="Proxy">
         {config.featureToggles['secureSocksDSProxyEnabled'] && gte(config.buildInfo.version, '10.0.0') && (
           <Field
             label={Components.ConfigEditor.SecureSocksProxy.label}
