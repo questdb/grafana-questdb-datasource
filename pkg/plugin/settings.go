@@ -172,5 +172,11 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings,
 		}
 	}
 
+	if jsonData["timeInterval"] != nil {
+		if timeInterval, ok := jsonData["timeInterval"].(string); ok {
+			settings.TimeInterval = timeInterval
+		}
+	}
+
 	return settings, settings.isValid()
 }

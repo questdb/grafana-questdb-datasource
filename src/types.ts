@@ -29,6 +29,7 @@ export interface QuestDBConfig extends DataSourceJsonData {
   maxOpenConnections?: number;
   maxIdleConnections?: number;
   maxConnectionLifetime?: number;
+  timeInterval?: string;
 
   tlsMode?: PostgresTLSModes;
   tlsConfigurationMethod?: PostgresTLSMethods;
