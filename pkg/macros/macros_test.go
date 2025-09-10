@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/sqlds/v2"
+	"github.com/grafana/sqlds/v4"
 	"github.com/questdb/grafana-questdb-datasource/pkg/macros"
 	"github.com/questdb/grafana-questdb-datasource/pkg/plugin"
 	"github.com/stretchr/testify/assert"
