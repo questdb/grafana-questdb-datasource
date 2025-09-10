@@ -132,7 +132,7 @@ func TestConnect(t *testing.T) {
 				`{ "server": "%s", "port": %s, "username": "%s", "tlsMode": "%s", "queryTimeout": "%d", "timeout": "%d", "maxOpenConnections": "%d", "maxIdleConnections": "%d", "maxConnectionLifetime": "%d" }`,
 				host, port, username, tlsMode, queryTimeout, connectTimeout, maxOpenConns, maxIdleConns, maxConnLife)), DecryptedSecureJSONData: secure}
 
-			db, err := questdb.Connect(settings, json.RawMessage{})
+			db, err := questdb.Connect(context.Background(), settings, json.RawMessage{})
 			assert.Equal(t, nil, err)
 
 			err = db.Ping()

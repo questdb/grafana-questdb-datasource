@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/proxy"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -35,16 +33,17 @@ func TestLoadSettings(t *testing.T) {
 					},
 				},
 				expectedSettings: Settings{
-					Server:                "test",
-					Port:                  8812,
-					Username:              "john",
-					Password:              "doe",
-					Timeout:               10,
-					QueryTimeout:          50,
-					MaxOpenConnections:    100,
-					MaxIdleConnections:    100,
-					MaxConnectionLifetime: 14400,
-					TlsMode:               "disable",
+					Server:                 "test",
+					Port:                   8812,
+					Username:               "john",
+					Password:               "doe",
+					Timeout:                10,
+					QueryTimeout:           50,
+					MaxOpenConnections:     100,
+					MaxIdleConnections:     100,
+					MaxConnectionLifetime:  14400,
+					TlsMode:                "disable",
+					EnableSecureSocksProxy: false,
 				},
 				expectedErr: nil,
 			},
@@ -60,31 +59,21 @@ func TestLoadSettings(t *testing.T) {
 					},
 				},
 				expectedSettings: Settings{
-					Server:                "test",
-					Port:                  1000,
-					Username:              "john",
-					Password:              "doe",
-					TlsCACert:             "caCert",
-					TlsClientCert:         "clientCert",
-					TlsClientKey:          "clientKey",
-					Timeout:               10,
-					QueryTimeout:          50,
-					MaxOpenConnections:    100,
-					MaxIdleConnections:    100,
-					MaxConnectionLifetime: 14400,
-					TlsMode:               "verify-full",
-					ConfigurationMethod:   "file-content",
-					ProxyOptions: &proxy.Options{
-						Enabled: true,
-						Auth: &proxy.AuthOptions{
-							Username: "ds-uid",
-							Password: "test",
-						},
-						Timeouts: &proxy.TimeoutOptions{
-							Timeout:   10 * time.Second,
-							KeepAlive: proxy.DefaultTimeoutOptions.KeepAlive,
-						},
-					},
+					Server:                 "test",
+					Port:                   1000,
+					Username:               "john",
+					Password:               "doe",
+					TlsCACert:              "caCert",
+					TlsClientCert:          "clientCert",
+					TlsClientKey:           "clientKey",
+					Timeout:                10,
+					QueryTimeout:           50,
+					MaxOpenConnections:     100,
+					MaxIdleConnections:     100,
+					MaxConnectionLifetime:  14400,
+					TlsMode:                "verify-full",
+					ConfigurationMethod:    "file-content",
+					EnableSecureSocksProxy: true,
 				},
 				expectedErr: nil,
 			},
@@ -106,7 +95,6 @@ func TestLoadSettings(t *testing.T) {
 					MaxOpenConnections:    10,
 					MaxIdleConnections:    5,
 					MaxConnectionLifetime: 3600,
-					ProxyOptions:          nil,
 				},
 				expectedErr: nil,
 			},

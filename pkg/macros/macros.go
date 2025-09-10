@@ -2,8 +2,10 @@ package macros
 
 import (
 	"fmt"
-	"github.com/grafana/sqlds/v2"
 	"math"
+	
+	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
+	"github.com/grafana/sqlds/v4"
 )
 
 type timeQueryType string
@@ -34,7 +36,7 @@ func ToTimeFilter(query *sqlds.Query, args []string) (string, error) {
 
 func TimeFilter(query *sqlds.Query, args []string) (string, error) {
 	if len(args) != 1 {
-		return "", fmt.Errorf("%w: expected 1 argument, received %d", sqlds.ErrorBadArgumentCount, len(args))
+		return "", fmt.Errorf("%w: expected 1 argument, received %d", sqlutil.ErrorBadArgumentCount, len(args))
 	}
 
 	var (

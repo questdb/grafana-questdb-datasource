@@ -262,7 +262,6 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             type="number"
           />
         </Field>
-
         <Field
           label={Components.ConfigEditor.MinInterval.label}
           description={Components.ConfigEditor.MinInterval.tooltip}
@@ -276,7 +275,11 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             aria-label={Components.ConfigEditor.MinInterval.label}
           />
         </Field>
+      </ConfigSection>
 
+      <Divider />
+
+      <ConfigSection title="Proxy">
         {config.featureToggles['secureSocksDSProxyEnabled'] && gte(config.buildInfo.version, '10.0.0') && (
           <Field
             label={Components.ConfigEditor.SecureSocksProxy.label}

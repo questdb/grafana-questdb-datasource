@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	sdkproxy "github.com/grafana/grafana-plugin-sdk-go/backend/proxy"
 	"github.com/lib/pq"
 	"golang.org/x/net/proxy"
 
@@ -19,7 +18,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/build"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
-	"github.com/grafana/sqlds/v2"
+	"github.com/grafana/sqlds/v4"
 	_ "github.com/lib/pq"
 	"github.com/pkg/errors"
 	"github.com/questdb/grafana-questdb-datasource/pkg/converters"
@@ -47,14 +46,12 @@ func getClientVersion(ctx context.Context) string {
 	return result
 }
 
-func (h *QuestDB) Connect(config backend.DataSourceInstanceSettings, message json.RawMessage) (*sql.DB, error) {
+func (h *QuestDB) Connect(ctx context.Context, config backend.DataSourceInstanceSettings, message json.RawMessage) (*sql.DB, error) {
 	settings, err := LoadSettings(config)
 	if err != nil {
 		log.DefaultLogger.Debug("Invalid settings found", "error", err)
 		return nil, err
 	}
-
-	ctx := context.Background()
 	connstr, err := GenerateConnectionString(settings, getClientVersion(ctx))
 	if err != nil {
 		log.DefaultLogger.Error("QuestDB connection string generation failed", "error", err)
@@ -69,17 +66,32 @@ func (h *QuestDB) Connect(config backend.DataSourceInstanceSettings, message jso
 		return nil, fmt.Errorf("QuestDB connector creation failed")
 	}
 
-	// use the proxy-dialer if the secure socks proxy is enabled
-	p := sdkproxy.New(settings.ProxyOptions)
-	if p.SecureSocksProxyEnabled() {
-		dialer, err := p.NewSecureSocksProxyContextDialer()
-		if err != nil {
-			log.DefaultLogger.Error("QuestDB proxy creation failed", "error", err)
-			return nil, err
+	proxyClient, err := config.ProxyClient(ctx)
+	if err != nil {
+		log.DefaultLogger.Error("QuestDB proxy client creation failed", "error", err)
+		return nil, err
+	}
+
+	log.DefaultLogger.Debug("QuestDB proxy status",
+		"enableSecureSocksProxy", settings.EnableSecureSocksProxy,
+		"proxyClientNil", proxyClient == nil,
+		"server", settings.Server,
+		"port", settings.Port)
+
+	if proxyClient != nil {
+		if proxyClient.SecureSocksProxyEnabled() {
+			log.DefaultLogger.Info("QuestDB secure socks proxy is enabled")
+			dialer, err := proxyClient.NewSecureSocksProxyContextDialer()
+			if err != nil {
+				log.DefaultLogger.Error("QuestDB secure socks proxy dialer creation failed", "error", err)
+				return nil, err
+			}
+			connector.Dialer(&postgresProxyDialer{d: dialer})
+			log.DefaultLogger.Debug("QuestDB secure socks proxy dialer configured")
+		} else {
+			log.DefaultLogger.Debug("QuestDB secure socks proxy is not enabled by SDK",
+				"datasourceHasFlag", settings.EnableSecureSocksProxy)
 		}
-		pqDialer := &postgresProxyDialer{d: dialer}
-		// update the postgres dialer with the proxy dialer
-		connector.Dialer(pqDialer)
 	}
 
 	db := sql.OpenDB(connector)
@@ -199,7 +211,7 @@ func (h *QuestDB) Macros() sqlds.Macros {
 	}
 }
 
-func (h *QuestDB) Settings(config backend.DataSourceInstanceSettings) sqlds.DriverSettings {
+func (h *QuestDB) Settings(ctx context.Context, config backend.DataSourceInstanceSettings) sqlds.DriverSettings {
 	settings, err := LoadSettings(config)
 	timeout := 60
 	if err == nil {
