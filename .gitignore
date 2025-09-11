@@ -25,6 +25,9 @@ artifacts/
 work/
 ci/
 
+# config test file
+test_grafana.ini
+
 # Editor
 .idea
 
@@ -32,3 +35,4 @@ pkg/__debug_bin
 
 **/.DS_Store
 .eslintcache
+.levitate_output
