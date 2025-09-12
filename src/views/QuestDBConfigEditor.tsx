@@ -277,22 +277,24 @@ export const ConfigEditor: React.FC<Props> = (props) => {
         </Field>
       </ConfigSection>
 
-      <Divider />
+      {config.featureToggles['secureSocksDSProxyEnabled'] && gte(config.buildInfo.version, '10.0.0') && (
+        <>
+          <Divider />
 
-      <ConfigSection title="Proxy">
-        {config.featureToggles['secureSocksDSProxyEnabled'] && gte(config.buildInfo.version, '10.0.0') && (
-          <Field
-            label={Components.ConfigEditor.SecureSocksProxy.label}
-            description={Components.ConfigEditor.SecureSocksProxy.tooltip}
-          >
-            <Switch
-              className="gf-form"
-              value={jsonData.enableSecureSocksProxy || false}
-              onChange={(e) => onSwitchToggle('enableSecureSocksProxy', e.currentTarget.checked)}
-            />
-          </Field>
-        )}
-      </ConfigSection>
+          <ConfigSection title="Proxy">
+            <Field
+              label={Components.ConfigEditor.SecureSocksProxy.label}
+              description={Components.ConfigEditor.SecureSocksProxy.tooltip}
+            >
+              <Switch
+                className="gf-form"
+                value={jsonData.enableSecureSocksProxy || false}
+                onChange={(e) => onSwitchToggle('enableSecureSocksProxy', e.currentTarget.checked)}
+              />
+            </Field>
+          </ConfigSection>
+        </>
+      )}
 
       <Divider />
       <ConfigSection title="TLS / SSL Settings">
