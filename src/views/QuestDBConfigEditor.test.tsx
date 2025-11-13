@@ -10,7 +10,7 @@ jest.mock('@grafana/runtime', () => {
   const original = jest.requireActual('@grafana/runtime');
   return {
     ...original,
-    config: { buildInfo: { version: '10.0.0' }, featureToggles: { secureSocksDSProxyEnabled: true } },
+    config: { buildInfo: { version: '10.0.0' }, secureSocksDSProxyEnabled: true },
   };
 });
 

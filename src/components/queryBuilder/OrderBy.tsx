@@ -140,7 +140,7 @@ export const getOrderByFields = (
       (builder.fields || []).forEach((f) =>{uniqueValues.add(f)} );
       ((builder.metrics as BuilderMetricField[]) || []).forEach((m)=>{uniqueValues.add(`${m.aggregation}(${m.field})`)});
       ((builder.groupBy as string[]) || []).forEach((g)=>{uniqueValues.add(g) });
-      uniqueValues.forEach((uv)=>{values.add({ value: uv, label: uv })});
+      uniqueValues.forEach((uv)=>{values.push({ value: uv, label: uv })});
       break;
     case BuilderMode.List:
     default:

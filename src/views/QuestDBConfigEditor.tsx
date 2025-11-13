@@ -9,8 +9,7 @@ import { Field, Input, SecretInput, Select, Switch } from '@grafana/ui';
 import { CertificationKey } from '../components/ui/CertificationKey';
 import { Components } from './../selectors';
 import { PostgresTLSModes, QuestDBConfig, QuestDBSecureConfig } from './../types';
-import { gte } from 'semver';
-import { ConfigSection, DataSourceDescription } from '@grafana/experimental';
+import { ConfigSection, DataSourceDescription } from '@grafana/plugin-ui';
 import { config } from '@grafana/runtime';
 import { Divider } from 'components/Divider';
 
@@ -277,7 +276,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
         </Field>
       </ConfigSection>
 
-      {config.featureToggles['secureSocksDSProxyEnabled'] && gte(config.buildInfo.version, '10.0.0') && (
+      {config.secureSocksDSProxyEnabled && (
         <>
           <Divider />
 
