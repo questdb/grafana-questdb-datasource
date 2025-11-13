@@ -1,9 +1,9 @@
 {
   "name": "questdb-questdb-datasource",
-  "version": "0.1.7",
+  "version": "0.1.6",
   "description": "QuestDB Datasource for Grafana",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "build": "webpack -c ./.config/webpack/webpack.config.ts --env production",
