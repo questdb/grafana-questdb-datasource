@@ -12,6 +12,7 @@ import { PostgresTLSModes, QuestDBConfig, QuestDBSecureConfig } from './../types
 import { ConfigSection, DataSourceDescription } from '@grafana/plugin-ui';
 import { config } from '@grafana/runtime';
 import { Divider } from 'components/Divider';
+import { gte } from 'semver';
 
 export interface Props extends DataSourcePluginOptionsEditorProps<QuestDBConfig> {}
 
@@ -276,7 +277,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
         </Field>
       </ConfigSection>
 
-      {config.secureSocksDSProxyEnabled && (
+      {config.secureSocksDSProxyEnabled && gte(config.buildInfo.version, '10.0.0') && (
         <>
           <Divider />
 

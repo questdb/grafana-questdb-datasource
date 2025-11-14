@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { SelectableValue } from '@grafana/data';
-import { Button, Input, MultiSelect, RadioButtonGroup, Select } from '@grafana/ui';
-import { Filter, FilterOperator, FullField, NullFilter } from '../../types';
+import { Button, Input, MultiCombobox, RadioButtonGroup, Combobox, ComboboxOption } from '@grafana/ui';
+import { DateFilterWithValue, Filter, FilterOperator, FullField, NullFilter } from '../../types';
 import * as utils from './utils';
 import { selectors } from '../../selectors';
 import { styles } from '../../styles';
@@ -11,11 +11,11 @@ const boolValues: Array<SelectableValue<boolean>> = [
   { value: true, label: 'True' },
   { value: false, label: 'False' },
 ];
-const conditions: Array<SelectableValue<'AND' | 'OR'>> = [
+const conditions: Array<ComboboxOption<'AND' | 'OR'>> = [
   { value: 'AND', label: 'AND' },
   { value: 'OR', label: 'OR' },
 ];
-const filterOperators: Array<SelectableValue<FilterOperator>> = [
+const filterOperators: Array<ComboboxOption<FilterOperator>> = [
   { value: FilterOperator.Equals, label: '=' },
   { value: FilterOperator.NotEquals, label: '!=' },
   { value: FilterOperator.LessThan, label: '<' },
@@ -37,7 +37,7 @@ const filterOperators: Array<SelectableValue<FilterOperator>> = [
   { value: FilterOperator.WithInGrafanaTimeRange, label: 'WITHIN DASHBOARD TIME RANGE' },
   { value: FilterOperator.OutsideGrafanaTimeRange, label: 'OUTSIDE DASHBOARD TIME RANGE' },
 ];
-const standardTimeOptions: Array<SelectableValue<string>> = [
+const standardTimeOptions: Array<ComboboxOption<string>> = [
   { value: "date_trunc('day', now())", label: 'TODAY' },
   { value: "date_trunc('day', dateadd('d', -1, now()))", label: 'YESTERDAY' },
   { value: 'now()', label: 'NOW' },
@@ -117,7 +117,7 @@ export const FilterValueEditor = (props: {
     if (filter.type === 'picklist') {
       return (
         <div data-testid="query-builder-filters-multi-picklist-value-container">
-          <MultiSelect
+          <MultiCombobox
             value={filter.value}
             options={getOptions()}
             onChange={(e) => onMultiFilterValueChange(e.map((v) => v.value!))}
@@ -139,15 +139,15 @@ export const FilterValueEditor = (props: {
     return <FilterValueNumberItem value={filter.value} onChange={(value) => onFilterChange({ ...filter, value })} />;
   } else if (utils.isDateFilter(filter)) {
     const onDateFilterValueChange = (value: string) => {
-      onFilterChange({ ...filter, value });
+      onFilterChange({ ...filter, value } as DateFilterWithValue);
     };
     //
     return utils.isDateFilterWithOutValue(filter) ? null : (
       <div data-testid="query-builder-filters-date-value-container">
-        <Select
+        <Combobox
           value={filter.value}
-          onChange={(e) => onDateFilterValueChange(e.value!)}
-          allowCustomValue={true}
+          onChange={(e) => onDateFilterValueChange(e.value)}
+          createCustomValue={true}
           options={[...standardTimeOptions]}
         />
       </div>
@@ -162,7 +162,7 @@ export const FilterValueEditor = (props: {
     ) {
       return (
         <div data-testid="query-builder-filters-single-picklist-value-container">
-          <Select value={filter.value} onChange={(e) => onStringFilterValueChange(e.value!)} options={getOptions()} />
+          <Combobox value={filter.value} onChange={(e) => onStringFilterValueChange(e.value!)} options={getOptions()} />
         </div>
       );
     }
@@ -185,7 +185,6 @@ export const FilterEditor = (props: {
   onFilterChange: (index: number, filter: Filter) => void;
 }) => {
   const { index, filter, fieldsList, onFilterChange } = props;
-  const [isOpen, setIsOpen] = useState(false);
   const getFields = () => {
     const values = (filter.restrictToFields || fieldsList).map((f) => {
       return { label: f.label, value: f.name };
@@ -197,7 +196,7 @@ export const FilterEditor = (props: {
     return values;
   };
 
-  const getFilterOperatorsByType = (type = 'string'): Array<SelectableValue<FilterOperator>> => {
+  const getFilterOperatorsByType = (type = 'string'): Array<ComboboxOption<FilterOperator>> => {
     if (utils.isBooleanType(type)) {
       return filterOperators.filter((f) => [FilterOperator.Equals, FilterOperator.NotEquals].includes(f.value!));
     } else if (utils.isGeoHashType(type)) {
@@ -284,7 +283,6 @@ export const FilterEditor = (props: {
     }
   };
   const onFilterNameChange = (fieldName: string) => {
-    setIsOpen(false);
     const matchingField = fieldsList.find((f) => f.name === fieldName);
     let filterData: { key: string; type: string } | null = null;
 
@@ -346,6 +344,14 @@ export const FilterEditor = (props: {
       if (!Array.isArray(newFilter.value)) {
         newFilter.value = [newFilter.value || ''];
       }
+    } else {
+      if ('value' in newFilter && Array.isArray(newFilter.value)) {
+        if (utils.isDateType(newFilter.type)) {
+          newFilter.value = '';
+        } else {
+          newFilter.value = newFilter.value[0] || '';
+        }
+      }
     }
     onFilterChange(index, newFilter);
   };
@@ -362,17 +368,14 @@ export const FilterEditor = (props: {
       {index !== 0 && (
         <RadioButtonGroup options={conditions} value={filter.condition} onChange={(e) => onFilterConditionChange(e!)} />
       )}
-      <Select
+      <Combobox
         value={filter.key}
         width={30}
         options={getFields()}
-        isOpen={isOpen}
-        onOpenMenu={() => setIsOpen(true)}
-        onCloseMenu={() => setIsOpen(false)}
         onChange={(e) => onFilterNameChange(e.value!)}
-        allowCustomValue={true}
+        createCustomValue={true}
       />
-      <Select
+      <Combobox
         value={filter.operator}
         width={30}
         options={getFilterOperatorsByType(filter.type)}
