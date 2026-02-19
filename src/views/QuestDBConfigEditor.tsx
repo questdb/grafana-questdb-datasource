@@ -277,7 +277,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
         </Field>
       </ConfigSection>
 
-      {config.featureToggles['secureSocksDSProxyEnabled'] && gte(config.buildInfo.version, '10.0.0') && (
+      {config.secureSocksDSProxyEnabled && gte(config.buildInfo.version, '10.0.0') && (
         <>
           <Divider />
 

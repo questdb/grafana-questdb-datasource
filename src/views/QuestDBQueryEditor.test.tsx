@@ -6,6 +6,14 @@ import * as ui from '@grafana/ui';
 import { mockDatasource } from '__mocks__/datasource';
 import { QueryType } from 'types';
 
+jest.mock('@grafana/runtime', () => ({
+  ...jest.requireActual('@grafana/runtime'),
+  getTemplateSrv: () => ({
+    getVariables: () => [],
+    replace: (s: string) => s,
+  }),
+}));
+
 jest.mock('@grafana/ui', () => ({
   ...jest.requireActual<typeof ui>('@grafana/ui'),
   CodeEditor: function CodeEditor({ onEditorDidMount, value }: { onEditorDidMount: any; value: string }) {

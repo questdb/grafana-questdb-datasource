@@ -4,6 +4,14 @@ import { QueryTypeSwitcher } from './QueryTypeSwitcher';
 import { selectors } from '../selectors';
 import { QueryType, QuestDBQuery, QuestDBSQLQuery, Format } from '../types';
 
+jest.mock('@grafana/runtime', () => ({
+  ...jest.requireActual('@grafana/runtime'),
+  getTemplateSrv: () => ({
+    getVariables: () => [],
+    replace: (s: string) => s,
+  }),
+}));
+
 const { options } = selectors.components.QueryEditor.Types;
 
 describe('QueryTypeSwitcher', () => {
