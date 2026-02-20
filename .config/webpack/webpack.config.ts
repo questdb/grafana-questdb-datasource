@@ -46,6 +46,8 @@ const config = async (env): Promise<Configuration> => {
       '@grafana/slate-react',
       'react',
       'react-dom',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
       'react-redux',
       'redux',
       'rxjs',
@@ -82,7 +84,7 @@ const config = async (env): Promise<Configuration> => {
             loader: 'swc-loader',
             options: {
               jsc: {
-                baseUrl: './src',
+                baseUrl: path.resolve(process.cwd(), 'src'),
                 target: 'es2015',
                 loose: false,
                 parser: {
