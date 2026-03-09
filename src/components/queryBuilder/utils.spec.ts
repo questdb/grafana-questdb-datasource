@@ -436,13 +436,13 @@ describe('Utils: getSQLFromQueryOptions and getQueryOptionsFromSql', () => {
   it(
     'handles sample by align to calendar',
     test(
-      'SELECT tstmp as time,  count(*), first(str) FROM "tab" WHERE   $__timeFilter(tstmp) SAMPLE BY $__sampleByInterval FILL ( null, 10 ) ALIGN TO CALENDAR',
+      'SELECT tstmp as time,  count(*), first(str) FROM "tab" WHERE   $__timeFilter(tstmp) SAMPLE BY $__sampleByInterval FILL ( NULL, 10 ) ALIGN TO CALENDAR',
       {
         mode: BuilderMode.Trend,
         table: 'tab',
         fields: ['tstmp'],
         sampleByAlignTo: SampleByAlignToMode.Calendar,
-        sampleByFill: ['null', '10'],
+        sampleByFill: ['NULL', '10'],
         metrics: [
           { field: '*', aggregation: BuilderMetricFieldAggregation.Count },
           { field: 'str', aggregation: BuilderMetricFieldAggregation.First },
@@ -464,14 +464,14 @@ describe('Utils: getSQLFromQueryOptions and getQueryOptionsFromSql', () => {
   it(
     'handles sample by align to calendar time zone',
     test(
-      'SELECT tstmp as time,  count(*), first(str) FROM "tab" WHERE $__timeFilter(tstmp) SAMPLE BY $__sampleByInterval FILL ( null, 10 ) ALIGN TO CALENDAR TIME ZONE \'EST\'',
+      'SELECT tstmp as time,  count(*), first(str) FROM "tab" WHERE $__timeFilter(tstmp) SAMPLE BY $__sampleByInterval FILL ( NULL, 10 ) ALIGN TO CALENDAR TIME ZONE \'EST\'',
       {
         mode: BuilderMode.Trend,
         table: 'tab',
         fields: ['time'],
         sampleByAlignTo: SampleByAlignToMode.CalendarTimeZone,
         sampleByAlignToValue: 'EST',
-        sampleByFill: ['null', '10'],
+        sampleByFill: ['NULL', '10'],
         metrics: [
           { field: '*', aggregation: BuilderMetricFieldAggregation.Count },
           { field: 'str', aggregation: BuilderMetricFieldAggregation.First },
@@ -486,14 +486,14 @@ describe('Utils: getSQLFromQueryOptions and getQueryOptionsFromSql', () => {
   it(
     'handles sample by align to calendar offset',
     test(
-      'SELECT tstmp as time,  count(*), first(str) FROM "tab" WHERE $__timeFilter(tstmp) SAMPLE BY $__sampleByInterval FILL ( null, 10 ) ALIGN TO CALENDAR WITH OFFSET \'01:00\'',
+      'SELECT tstmp as time,  count(*), first(str) FROM "tab" WHERE $__timeFilter(tstmp) SAMPLE BY $__sampleByInterval FILL ( NULL, 10 ) ALIGN TO CALENDAR WITH OFFSET \'01:00\'',
       {
         mode: BuilderMode.Trend,
         table: 'tab',
         fields: ['time'],
         sampleByAlignTo: SampleByAlignToMode.CalendarOffset,
         sampleByAlignToValue: '01:00',
-        sampleByFill: ['null', '10'],
+        sampleByFill: ['NULL', '10'],
         metrics: [
           { field: '*', aggregation: BuilderMetricFieldAggregation.Count },
           { field: 'str', aggregation: BuilderMetricFieldAggregation.First },
@@ -508,13 +508,13 @@ describe('Utils: getSQLFromQueryOptions and getQueryOptionsFromSql', () => {
   it(
     'handles sample by align to first observation',
     test(
-      'SELECT tstmp as time,  count(*), first(str) FROM "tab" WHERE $__timeFilter(tstmp) SAMPLE BY $__sampleByInterval FILL ( null, 10 ) ALIGN TO FIRST OBSERVATION',
+      'SELECT tstmp as time,  count(*), first(str) FROM "tab" WHERE $__timeFilter(tstmp) SAMPLE BY $__sampleByInterval FILL ( NULL, 10 ) ALIGN TO FIRST OBSERVATION',
       {
         mode: BuilderMode.Trend,
         table: 'tab',
         fields: ['time'],
         sampleByAlignTo: SampleByAlignToMode.FirstObservation,
-        sampleByFill: ['null', '10'],
+        sampleByFill: ['NULL', '10'],
         metrics: [
           { field: '*', aggregation: BuilderMetricFieldAggregation.Count },
           { field: 'str', aggregation: BuilderMetricFieldAggregation.First },
@@ -675,6 +675,1192 @@ describe('Utils: getSQLFromQueryOptions and getQueryOptionsFromSql', () => {
       table: 'tab',
       fields: ['tstmp', 'cast(e  as timestamp)', 'f(x)', 'g(a, b)'],
       timeField: '',
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: error paths', () => {
+  it('returns error for unparseable SQL', async () => {
+    const result = await getQueryOptionsFromSql('NOT VALID SQL AT ALL', mockDatasource);
+    expect(result).toBe("The query can't be parsed.");
+  });
+
+  it('returns error for empty string', async () => {
+    const result = await getQueryOptionsFromSql('', mockDatasource);
+    expect(result).toBe("The query can't be parsed.");
+  });
+
+  it('returns error for multiple FROM tables', async () => {
+    const result = await getQueryOptionsFromSql('SELECT * FROM a, b', mockDatasource);
+    expect(result).toBe("The query has too many 'FROM' clauses.");
+  });
+
+  it('returns error for FROM subquery', async () => {
+    const result = await getQueryOptionsFromSql('SELECT * FROM (SELECT * FROM t) alias', mockDatasource);
+    expect(result).toBe("The 'FROM' clause is not a table.");
+  });
+});
+
+describe('getQueryOptionsFromSql: filter operators', () => {
+  it('handles LIKE filter', async () => {
+    const result = await getQueryOptionsFromSql(`SELECT a FROM "t" WHERE name LIKE '%foo%'`, mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'name', operator: FilterOperator.Like, value: '%foo%', type: 'string' },
+      ],
+    });
+  });
+
+  it('handles NOT LIKE filter', async () => {
+    const result = await getQueryOptionsFromSql(`SELECT a FROM "t" WHERE NOT ( name LIKE '%foo%' )`, mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'name', operator: FilterOperator.NotLike, value: '%foo%', type: 'string' },
+      ],
+    });
+  });
+
+  it('handles != filter', async () => {
+    const result = await getQueryOptionsFromSql(`SELECT a FROM "t" WHERE col != 'val'`, mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'col', operator: FilterOperator.NotEquals, value: 'val', type: 'string' },
+      ],
+    });
+  });
+
+  it('handles >= filter', async () => {
+    const result = await getQueryOptionsFromSql('SELECT a FROM "t" WHERE num >= 10', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'num', operator: FilterOperator.GreaterThanOrEqual, value: 10, type: 'int' },
+      ],
+    });
+  });
+
+  it('handles <= filter', async () => {
+    const result = await getQueryOptionsFromSql('SELECT a FROM "t" WHERE num <= 10', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'num', operator: FilterOperator.LessThanOrEqual, value: 10, type: 'int' },
+      ],
+    });
+  });
+
+  it('handles < filter', async () => {
+    const result = await getQueryOptionsFromSql('SELECT a FROM "t" WHERE num < 5', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'num', operator: FilterOperator.LessThan, value: 5, type: 'int' },
+      ],
+    });
+  });
+
+  it('handles IS NULL filter', async () => {
+    const result = await getQueryOptionsFromSql('SELECT a FROM "t" WHERE col IS NULL', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'col', operator: FilterOperator.IsNull },
+      ],
+    });
+  });
+
+  it('handles IS NOT NULL filter', async () => {
+    const result = await getQueryOptionsFromSql('SELECT a FROM "t" WHERE col IS NOT NULL', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'col', operator: FilterOperator.IsNotNull },
+      ],
+    });
+  });
+
+  it('handles boolean false filter', async () => {
+    const result = await getQueryOptionsFromSql('SELECT a FROM "t" WHERE active = false', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'active', operator: FilterOperator.Equals, value: false, type: 'boolean' },
+      ],
+    });
+  });
+
+  it('handles string equality filter', async () => {
+    const result = await getQueryOptionsFromSql(`SELECT a FROM "t" WHERE name = 'hello'`, mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'name', operator: FilterOperator.Equals, value: 'hello', type: 'string' },
+      ],
+    });
+  });
+
+  it('handles numeric equality filter with float', async () => {
+    const result = await getQueryOptionsFromSql('SELECT a FROM "t" WHERE price = 9.99', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'price', operator: FilterOperator.Equals, value: 9.99, type: 'double' },
+      ],
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: complex filter conditions', () => {
+  it('handles multiple AND conditions', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE x = 1 AND y = 2 AND z = 3',
+      mockDatasource
+    );
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'x', operator: FilterOperator.Equals, value: 1, type: 'int' },
+        { condition: 'AND', key: 'y', operator: FilterOperator.Equals, value: 2, type: 'int' },
+        { condition: 'AND', key: 'z', operator: FilterOperator.Equals, value: 3, type: 'int' },
+      ],
+    });
+  });
+
+  it('handles OR condition', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE x = 1 OR y = 2',
+      mockDatasource
+    );
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'x', operator: FilterOperator.Equals, value: 1, type: 'int' },
+        { condition: 'OR', key: 'y', operator: FilterOperator.Equals, value: 2, type: 'int' },
+      ],
+    });
+  });
+
+  it('handles mixed AND/OR conditions', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE x = 1 AND y = 2 OR z = 3',
+      mockDatasource
+    );
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'x', operator: FilterOperator.Equals, value: 1, type: 'int' },
+        { condition: 'AND', key: 'y', operator: FilterOperator.Equals, value: 2, type: 'int' },
+        { condition: 'OR', key: 'z', operator: FilterOperator.Equals, value: 3, type: 'int' },
+      ],
+    });
+  });
+
+  it('handles AND with IS NULL', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE x = 1 AND y IS NULL',
+      mockDatasource
+    );
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['a'],
+      timeField: '',
+      filters: [
+        { key: 'x', operator: FilterOperator.Equals, value: 1, type: 'int' },
+        { condition: 'AND', key: 'y', operator: FilterOperator.IsNull },
+      ],
+    });
+  });
+
+  it('handles filter with cast value', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      `SELECT ts FROM "t" WHERE ts > cast( '2020-01-01' as timestamp )`,
+      mockDatasource
+    );
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['ts'],
+      timeField: 'ts',
+      filters: [
+        {
+          key: 'ts',
+          operator: FilterOperator.GreaterThan,
+          type: 'timestamp',
+          value: "cast( '2020-01-01' as timestamp )",
+        },
+      ],
+    });
+    mockTimeField = '';
+  });
+});
+
+describe('getQueryOptionsFromSql: aggregation functions', () => {
+  it('handles avg aggregation', async () => {
+    const result = await getQueryOptionsFromSql('SELECT avg(field1) FROM "t"', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.Aggregate,
+      table: 't',
+      fields: [],
+      metrics: [{ field: 'field1', aggregation: BuilderMetricFieldAggregation.Average }],
+      timeField: '',
+    });
+  });
+
+  it('handles min aggregation', async () => {
+    const result = await getQueryOptionsFromSql('SELECT min(field1) FROM "t"', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.Aggregate,
+      table: 't',
+      fields: [],
+      metrics: [{ field: 'field1', aggregation: BuilderMetricFieldAggregation.Min }],
+      timeField: '',
+    });
+  });
+
+  it('handles max aggregation', async () => {
+    const result = await getQueryOptionsFromSql('SELECT max(field1) FROM "t"', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.Aggregate,
+      table: 't',
+      fields: [],
+      metrics: [{ field: 'field1', aggregation: BuilderMetricFieldAggregation.Max }],
+      timeField: '',
+    });
+  });
+
+  it('handles first aggregation', async () => {
+    const result = await getQueryOptionsFromSql('SELECT first(field1) FROM "t"', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.Aggregate,
+      table: 't',
+      fields: [],
+      metrics: [{ field: 'field1', aggregation: BuilderMetricFieldAggregation.First }],
+      timeField: '',
+    });
+  });
+
+  it('handles last aggregation', async () => {
+    const result = await getQueryOptionsFromSql('SELECT last(field1) FROM "t"', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.Aggregate,
+      table: 't',
+      fields: [],
+      metrics: [{ field: 'field1', aggregation: BuilderMetricFieldAggregation.Last }],
+      timeField: '',
+    });
+  });
+
+  it('handles count_distinct aggregation', async () => {
+    const result = await getQueryOptionsFromSql('SELECT count_distinct(field1) FROM "t"', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.Aggregate,
+      table: 't',
+      fields: [],
+      metrics: [{ field: 'field1', aggregation: BuilderMetricFieldAggregation.Count_Distinct }],
+      timeField: '',
+    });
+  });
+
+  it('handles ksum aggregation', async () => {
+    const result = await getQueryOptionsFromSql('SELECT ksum(field1) FROM "t"', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.Aggregate,
+      table: 't',
+      fields: [],
+      metrics: [{ field: 'field1', aggregation: BuilderMetricFieldAggregation.KSum }],
+      timeField: '',
+    });
+  });
+
+  it('handles nsum aggregation', async () => {
+    const result = await getQueryOptionsFromSql('SELECT nsum(field1) FROM "t"', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.Aggregate,
+      table: 't',
+      fields: [],
+      metrics: [{ field: 'field1', aggregation: BuilderMetricFieldAggregation.NSum }],
+      timeField: '',
+    });
+  });
+
+  it('handles count(*) special case', async () => {
+    const result = await getQueryOptionsFromSql('SELECT count(*) FROM "t"', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.Aggregate,
+      table: 't',
+      fields: [],
+      metrics: [{ field: '*', aggregation: BuilderMetricFieldAggregation.Count }],
+      timeField: '',
+    });
+  });
+
+  it('handles non-aggregation function as field', async () => {
+    const result = await getQueryOptionsFromSql('SELECT abs(field1) FROM "t"', mockDatasource);
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['abs(field1)'],
+      timeField: '',
+    });
+  });
+
+  it('handles mix of fields, metrics, and literals', async () => {
+    const result = await getQueryOptionsFromSql(
+      `SELECT field1, sum(field2), 42, 'hello', true FROM "t"`,
+      mockDatasource
+    );
+    expect(result).toEqual({
+      mode: BuilderMode.Aggregate,
+      table: 't',
+      fields: ['field1', '42', "'hello'", 'true'],
+      metrics: [{ field: 'field2', aggregation: BuilderMetricFieldAggregation.Sum }],
+      timeField: '',
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: SAMPLE BY variations', () => {
+  it('handles SAMPLE BY without FILL', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      'SELECT ts as time, count(*) FROM "t" WHERE $__timeFilter(ts) SAMPLE BY $__sampleByInterval',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      mode: BuilderMode.Trend,
+      table: 't',
+      timeField: 'ts',
+      metrics: [{ field: '*', aggregation: BuilderMetricFieldAggregation.Count }],
+    });
+    // sampleByFill should not be set
+    expect((result as any).sampleByFill).toBeUndefined();
+    mockTimeField = '';
+  });
+
+  it('handles SAMPLE BY with FILL(NONE) only', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      'SELECT ts as time, count(*) FROM "t" WHERE $__timeFilter(ts) SAMPLE BY $__sampleByInterval FILL(NONE)',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      mode: BuilderMode.Trend,
+      table: 't',
+      timeField: 'ts',
+    });
+    expect((result as any).sampleByFill).toEqual(['NONE']);
+    // sampleByAlignTo should not be set
+    expect((result as any).sampleByAlignTo).toBeUndefined();
+    mockTimeField = '';
+  });
+
+  it('handles SAMPLE BY with FILL(PREV)', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      'SELECT ts as time, count(*) FROM "t" WHERE $__timeFilter(ts) SAMPLE BY $__sampleByInterval FILL(PREV)',
+      mockDatasource
+    );
+    expect((result as any).sampleByFill).toEqual(['PREV']);
+    mockTimeField = '';
+  });
+
+  it('handles SAMPLE BY with FILL(LINEAR)', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      'SELECT ts as time, count(*) FROM "t" WHERE $__timeFilter(ts) SAMPLE BY $__sampleByInterval FILL(LINEAR)',
+      mockDatasource
+    );
+    expect((result as any).sampleByFill).toEqual(['LINEAR']);
+    mockTimeField = '';
+  });
+
+  it('handles SAMPLE BY with multiple FILL values', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      'SELECT ts as time, count(*), sum(val) FROM "t" WHERE $__timeFilter(ts) SAMPLE BY $__sampleByInterval FILL(NONE, PREV)',
+      mockDatasource
+    );
+    expect((result as any).sampleByFill).toEqual(['NONE', 'PREV']);
+    mockTimeField = '';
+  });
+});
+
+describe('getQueryOptionsFromSql: ORDER BY variations', () => {
+  it('handles ORDER BY DESC', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" ORDER BY a DESC',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      orderBy: [{ name: 'a', dir: OrderByDirection.DESC }],
+    });
+  });
+
+  it('handles multiple ORDER BY clauses', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a, b FROM "t" ORDER BY a ASC, b DESC',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      orderBy: [
+        { name: 'a', dir: OrderByDirection.ASC },
+        { name: 'b', dir: OrderByDirection.DESC },
+      ],
+    });
+  });
+
+  it('filters out ORDER BY time', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" ORDER BY time ASC',
+      mockDatasource
+    );
+    // 'time' should be filtered out, so no orderBy
+    expect((result as any).orderBy).toBeUndefined();
+  });
+
+  it('handles no ORDER BY', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t"',
+      mockDatasource
+    );
+    expect((result as any).orderBy).toBeUndefined();
+  });
+});
+
+describe('getQueryOptionsFromSql: LIMIT variations', () => {
+  it('handles no LIMIT', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t"',
+      mockDatasource
+    );
+    expect((result as any).limit).toBeUndefined();
+  });
+
+  it('handles simple LIMIT', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" LIMIT 50',
+      mockDatasource
+    );
+    expect((result as any).limit).toBe('50');
+  });
+
+  it('handles LIMIT with offset', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" LIMIT 5, 50',
+      mockDatasource
+    );
+    expect((result as any).limit).toBe('5, 50');
+  });
+});
+
+describe('getQueryOptionsFromSql: GROUP BY variations', () => {
+  it('handles multiple GROUP BY', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a, b, count(*) FROM "t" GROUP BY a, b',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      groupBy: ['a', 'b'],
+    });
+  });
+
+  it('filters out GROUP BY time', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT time, count(*) FROM "t" GROUP BY time',
+      mockDatasource
+    );
+    // 'time' should be filtered out
+    expect((result as any).groupBy).toBeUndefined();
+  });
+
+  it('handles GROUP BY with aggregation', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT category, sum(amount) FROM "t" GROUP BY category',
+      mockDatasource
+    );
+    expect(result).toEqual({
+      mode: BuilderMode.Aggregate,
+      table: 't',
+      fields: ['category'],
+      metrics: [{ field: 'amount', aggregation: BuilderMetricFieldAggregation.Sum }],
+      groupBy: ['category'],
+      timeField: '',
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: select list edge cases', () => {
+  it('handles cast expression in select', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT col::timestamp FROM "t"',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      mode: BuilderMode.List,
+      table: 't',
+    });
+    expect((result as any).fields[0]).toContain('cast');
+    expect((result as any).fields[0]).toContain('timestamp');
+  });
+
+  it('handles string literal in select', async () => {
+    const result = await getQueryOptionsFromSql(
+      `SELECT 'hello' FROM "t"`,
+      mockDatasource
+    );
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ["'hello'"],
+      timeField: '',
+    });
+  });
+
+  it('handles numeric literal in select', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT 42 FROM "t"',
+      mockDatasource
+    );
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['42'],
+      timeField: '',
+    });
+  });
+
+  it('handles boolean literal in select', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT true FROM "t"',
+      mockDatasource
+    );
+    expect(result).toEqual({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['true'],
+      timeField: '',
+    });
+  });
+
+  it('handles aggregation with alias', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT avg(price) avg_price FROM "t"',
+      mockDatasource
+    );
+    expect(result).toEqual({
+      mode: BuilderMode.Aggregate,
+      table: 't',
+      fields: [],
+      metrics: [{ field: 'price', aggregation: BuilderMetricFieldAggregation.Average, alias: 'avg_price' }],
+      timeField: '',
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: LATEST ON', () => {
+  it('handles LATEST ON parsing with single partition', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      'SELECT sym, value FROM "t" LATEST ON ts PARTITION BY sym',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      mode: BuilderMode.List,
+      table: 't',
+      fields: ['sym', 'value'],
+      timeField: 'ts',
+      partitionBy: ['sym'],
+    });
+    mockTimeField = '';
+  });
+
+  it('handles LATEST ON parsing with multiple partitions', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      'SELECT s1, s2, value FROM "t" LATEST ON ts PARTITION BY s1, s2',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      mode: BuilderMode.List,
+      partitionBy: ['s1', 's2'],
+    });
+    mockTimeField = '';
+  });
+});
+
+describe('getQueryOptionsFromSql: SAMPLE BY ALIGN TO with value', () => {
+  it('handles ALIGN TO CALENDAR TIME ZONE with value', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      "SELECT ts as time, count(*) FROM \"t\" WHERE $__timeFilter(ts) SAMPLE BY $__sampleByInterval FILL(NONE) ALIGN TO CALENDAR TIME ZONE 'EST'",
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      mode: BuilderMode.Trend,
+      sampleByAlignTo: SampleByAlignToMode.CalendarTimeZone,
+      sampleByAlignToValue: 'EST',
+    });
+    mockTimeField = '';
+  });
+
+  it('handles ALIGN TO CALENDAR WITH OFFSET with value', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      "SELECT ts as time, count(*) FROM \"t\" WHERE $__timeFilter(ts) SAMPLE BY $__sampleByInterval ALIGN TO CALENDAR WITH OFFSET '01:00'",
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      mode: BuilderMode.Trend,
+      sampleByAlignTo: SampleByAlignToMode.CalendarOffset,
+      sampleByAlignToValue: '01:00',
+    });
+    mockTimeField = '';
+  });
+
+  it('handles ALIGN TO FIRST OBSERVATION (no value)', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      'SELECT ts as time, count(*) FROM "t" WHERE $__timeFilter(ts) SAMPLE BY $__sampleByInterval ALIGN TO FIRST OBSERVATION',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      mode: BuilderMode.Trend,
+      sampleByAlignTo: SampleByAlignToMode.FirstObservation,
+    });
+    expect((result as any).sampleByAlignToValue).toBeUndefined();
+    mockTimeField = '';
+  });
+
+  it('handles SAMPLE BY with FILL(NULL)', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      'SELECT ts as time, count(*) FROM "t" WHERE $__timeFilter(ts) SAMPLE BY $__sampleByInterval FILL(NULL)',
+      mockDatasource
+    );
+    expect((result as any).sampleByFill).toEqual(['NULL']);
+    mockTimeField = '';
+  });
+});
+
+describe('getQueryOptionsFromSql: WHERE with function calls', () => {
+  it('handles standalone function call in WHERE', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE $__timeFilter(ts)',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'ts',
+          operator: FilterOperator.WithInGrafanaTimeRange,
+          type: 'timestamp',
+        },
+      ],
+    });
+  });
+
+  it('handles negated $__timeFilter in WHERE', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE NOT ($__timeFilter(ts))',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'ts',
+          operator: FilterOperator.OutsideGrafanaTimeRange,
+          type: 'timestamp',
+        },
+      ],
+    });
+  });
+
+  it('handles function call after AND in WHERE', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE col = 1 AND $__timeFilter(ts)',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        { key: 'col', operator: FilterOperator.Equals },
+        {
+          key: 'ts',
+          operator: FilterOperator.WithInGrafanaTimeRange,
+          type: 'timestamp',
+          condition: 'AND',
+        },
+      ],
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: date filter values', () => {
+  it('handles filter with $__fromTime value', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE ts > $__fromTime',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'ts',
+          operator: FilterOperator.GreaterThan,
+          value: 'GRAFANA_START_TIME',
+          type: 'timestamp',
+        },
+      ],
+    });
+  });
+
+  it('handles filter with $__toTime value', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE ts < $__toTime',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'ts',
+          operator: FilterOperator.LessThan,
+          value: 'GRAFANA_END_TIME',
+          type: 'timestamp',
+        },
+      ],
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: GROUP BY with timeField', () => {
+  it('handles GROUP BY with timeField and aggregation in Trend mode', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      'SELECT ts as time, sym, count(*) FROM "t" WHERE $__timeFilter(ts) SAMPLE BY $__sampleByInterval',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      mode: BuilderMode.Trend,
+      table: 't',
+    });
+    mockTimeField = '';
+  });
+});
+
+describe('getQueryOptionsFromSql: function calls with various arg types in WHERE', () => {
+  it('handles function call with string argument in WHERE', async () => {
+    const result = await getQueryOptionsFromSql(
+      "SELECT a FROM \"t\" WHERE col = func('hello')",
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'col',
+          operator: FilterOperator.Equals,
+          value: "func('hello')",
+        },
+      ],
+    });
+  });
+
+  it('handles function call with numeric argument in WHERE', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE col = func(42)',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'col',
+          operator: FilterOperator.Equals,
+          value: 'func(42)',
+        },
+      ],
+    });
+  });
+
+  it('handles function call with boolean argument in WHERE', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE col = func(true)',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'col',
+          operator: FilterOperator.Equals,
+          value: 'func(true)',
+        },
+      ],
+    });
+  });
+
+  it('handles function call with NULL argument in WHERE', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE col = func(NULL)',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'col',
+          operator: FilterOperator.Equals,
+          value: 'func(null)',
+        },
+      ],
+    });
+  });
+
+  it('handles function call with multiple mixed args in WHERE', async () => {
+    const result = await getQueryOptionsFromSql(
+      "SELECT a FROM \"t\" WHERE col = func('hello', 42, true)",
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'col',
+          operator: FilterOperator.Equals,
+          value: "func('hello', 42, true)",
+        },
+      ],
+    });
+  });
+
+  it('handles standalone non-timeFilter function in WHERE', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE myfunc(x, y)',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'true',
+          type: 'boolean',
+          value: 'myfunc(x, y)',
+        },
+      ],
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: LATEST ON with qualified partition', () => {
+  it('handles partition column with table prefix', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      'SELECT sym, value FROM "t" LATEST ON ts PARTITION BY t.sym',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      mode: BuilderMode.List,
+      partitionBy: ['t.sym'],
+    });
+    mockTimeField = '';
+  });
+});
+
+describe('getQueryOptionsFromSql: integer filter value', () => {
+  it('handles integer value in WHERE', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE col = 42',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'col',
+          operator: FilterOperator.Equals,
+          value: 42,
+          type: 'int',
+        },
+      ],
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: non-aggregation functions in SELECT', () => {
+  it('handles non-agg function with string arg in SELECT', async () => {
+    const result = await getQueryOptionsFromSql(
+      "SELECT to_str(ts, 'yyyy') FROM \"t\"",
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      fields: ["to_str(ts, 'yyyy')"],
+    });
+  });
+
+  it('handles non-agg function with numeric arg in SELECT', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT round(price, 2) FROM "t"',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      fields: ['round(price, 2)'],
+    });
+  });
+
+  it('handles non-agg function with no args in SELECT', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT now() FROM "t"',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      fields: ['now()'],
+    });
+  });
+});
+
+// ============================================================================
+// Migration safety tests: covering gaps found during comprehensive code audit
+// These test specific parser-dependent behaviors that could silently break
+// when migrating from @questdb/sql-ast-parser to @questdb/sql-parser
+// ============================================================================
+
+describe('getQueryOptionsFromSql: ref-to-ref comparison in WHERE', () => {
+  it('handles WHERE col1 = col2 (ref on both sides of binary)', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE col1 = col2',
+      mockDatasource
+    );
+    // getRefFilter stores the RHS ref as value: [e.name] (array, not string)
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'col1',
+          operator: FilterOperator.Equals,
+          value: ['col2'],
+          type: 'string',
+        },
+      ],
+    });
+  });
+
+  it('handles WHERE col1 != col2', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE col1 != col2',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'col1',
+          operator: FilterOperator.NotEquals,
+          value: ['col2'],
+          type: 'string',
+        },
+      ],
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: cast on LHS of WHERE', () => {
+  it('handles WHERE cast(col AS int) = value', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE cast(col AS int) = 1',
+      mockDatasource
+    );
+    // getCastFilter with no key yet -> cast expression becomes the key
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'cast( col as int )',
+          operator: FilterOperator.Equals,
+          value: 1,
+          type: 'int',
+        },
+      ],
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: FILL with numeric value', () => {
+  it('handles FILL(0) numeric fill value', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      'SELECT ts as time, count(*) FROM "t" WHERE $__timeFilter(ts) SAMPLE BY $__sampleByInterval FILL(0)',
+      mockDatasource
+    );
+    // sampleByFill with type 'integer' uses f.value.toString()
+    expect((result as any).sampleByFill).toEqual(['0']);
+    mockTimeField = '';
+  });
+
+  it('handles FILL with mixed keyword and numeric', async () => {
+    mockTimeField = 'ts';
+    const result = await getQueryOptionsFromSql(
+      'SELECT ts as time, count(*), sum(val) FROM "t" WHERE $__timeFilter(ts) SAMPLE BY $__sampleByInterval FILL(NONE, 0)',
+      mockDatasource
+    );
+    expect((result as any).sampleByFill).toEqual(['NONE', '0']);
+    mockTimeField = '';
+  });
+});
+
+describe('getQueryOptionsFromSql: aggregation case sensitivity', () => {
+  it('parser normalizes SUM to lowercase sum', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT SUM(field1) FROM "t"',
+      mockDatasource
+    );
+    // old parser normalizes function names to lowercase
+    // if new parser preserves case, this test will catch it
+    expect(result).toMatchObject({
+      metrics: [{ field: 'field1', aggregation: 'sum' }],
+    });
+  });
+
+  it('parser normalizes COUNT to lowercase count', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT COUNT(*) FROM "t"',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      metrics: [{ field: '*', aggregation: 'count' }],
+    });
+  });
+
+  it('parser normalizes AVG to lowercase avg', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT AVG(price) FROM "t"',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      metrics: [{ field: 'price', aggregation: 'avg' }],
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: > with plain numeric value', () => {
+  it('handles WHERE col > 10 (integer)', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE col > 10',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'col',
+          operator: FilterOperator.GreaterThan,
+          value: 10,
+          type: 'int',
+        },
+      ],
+    });
+  });
+
+  it('handles WHERE col > 3.14 (numeric/float)', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE col > 3.14',
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'col',
+          operator: FilterOperator.GreaterThan,
+          value: 3.14,
+          type: 'double',
+        },
+      ],
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: IN with numeric list', () => {
+  it('handles WHERE col IN (1, 2, 3) - integers in list', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT a FROM "t" WHERE col IN (1, 2, 3)',
+      mockDatasource
+    );
+    // getListFilter casts all items to ExprString and reads .value
+    // For ExprInteger items, .value is a number, so the list contains numbers
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'col',
+          operator: FilterOperator.In,
+          value: [1, 2, 3],
+          type: 'string',
+        },
+      ],
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: star select', () => {
+  it('handles SELECT * as a field named *', async () => {
+    const result = await getQueryOptionsFromSql(
+      'SELECT * FROM "t"',
+      mockDatasource
+    );
+    // parser represents * as ExprRef with name '*'
+    expect(result).toMatchObject({
+      fields: ['*'],
+    });
+  });
+});
+
+describe('getQueryOptionsFromSql: string filter as value (not key)', () => {
+  it('handles WHERE col = \'hello\' - string on RHS', async () => {
+    const result = await getQueryOptionsFromSql(
+      "SELECT a FROM \"t\" WHERE col = 'hello'",
+      mockDatasource
+    );
+    expect(result).toMatchObject({
+      filters: [
+        {
+          key: 'col',
+          operator: FilterOperator.Equals,
+          value: 'hello',
+          type: 'string',
+        },
+      ],
     });
   });
 });

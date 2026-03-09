@@ -46,6 +46,11 @@ jobs:
         env:
           NODE_OPTIONS: '--max_old_space_size=4096'
 
+      - name: Run frontend tests
+        run: npx jest --forceExit --no-cache
+        env:
+          NODE_OPTIONS: '--max_old_space_size=4096'
+
       - name: Build Frontend
         run: yarn build
         env:

@@ -1,21 +1,19 @@
 import { VariableWithMultiSupport } from '@grafana/data';
-import {
-  astVisitor,
-  Expr,
-  ExprBinary,
-  ExprBool,
-  ExprCall,
-  ExprCast,
-  ExprInteger,
-  ExprList,
-  ExprNumeric,
-  ExprRef,
-  ExprString,
-  ExprUnary,
-  FromTable,
-  IAstVisitor,
-  SelectedColumn,
-} from '@questdb/sql-ast-parser';
+import type {
+  Expression,
+  BinaryExpression,
+  Literal,
+  FunctionCall,
+  CastExpression,
+  ColumnRef,
+  UnaryExpression,
+  InExpression,
+  IsNullExpression,
+  QualifiedName,
+  SelectStatement,
+  ExpressionSelectItem,
+  SelectItem,
+} from '@questdb/sql-parser';
 import {
   BooleanFilter,
   BuilderMetricField,
@@ -359,23 +357,24 @@ export async function getQueryOptionsFromSql(
   sql: string,
   datasource?: Datasource
 ): Promise<SqlBuilderOptions | string> {
-  const ast = sqlToStatement(sql);
+  const ast = sqlToStatement(sql) as SelectStatement;
   if (!ast || ast.type !== 'select') {
     return "The query can't be parsed.";
   }
   if (!ast.from || ast.from.length !== 1) {
     return `The query has too many 'FROM' clauses.`;
   }
-  if (ast.from[0].type !== 'table') {
+  if (ast.from[0].table.type !== 'qualifiedName') {
     return `The 'FROM' clause is not a table.`;
   }
-  const fromTable = ast.from[0] as FromTable;
+  const tableName = (ast.from[0].table as QualifiedName).parts;
+  const tableNameStr = tableName[tableName.length - 1];
 
   let timeField;
   let fieldsToTypes = new Map<string, string>();
 
-  if (fromTable?.name?.name.length > 0 && datasource) {
-    const dbFields = await datasource.fetchFields(fromTable?.name?.name);
+  if (tableNameStr.length > 0 && datasource) {
+    const dbFields = await datasource.fetchFields(tableNameStr);
     dbFields.forEach((f) => {
       fieldsToTypes.set(f.name, f.type);
     });
@@ -390,7 +389,7 @@ export async function getQueryOptionsFromSql(
 
   let builder = {
     mode: BuilderMode.List,
-    table: fromTable.name.name,
+    table: tableNameStr,
     timeField: timeField,
   } as SqlBuilderOptions;
 
@@ -409,10 +408,15 @@ export async function getQueryOptionsFromSql(
 
   const orderBy = ast.orderBy
     ?.map<OrderBy>((ob) => {
-      if (ob.by.type !== 'ref' || ob.by.name === 'time') {
+      if (ob.expression.type !== 'column') {
         return {} as OrderBy;
       }
-      return { name: ob.by.name, dir: ob.order } as OrderBy;
+      const colName = (ob.expression as ColumnRef).name.parts;
+      const name = colName[colName.length - 1];
+      if (name === 'time') {
+        return {} as OrderBy;
+      }
+      return { name, dir: (ob.direction || 'asc').toUpperCase() } as OrderBy;
     })
     .filter((x) => x.name);
 
@@ -422,55 +426,64 @@ export async function getQueryOptionsFromSql(
 
   builder.limit = undefined;
   if (ast.limit) {
-    if (ast.limit.upperBound && ast.limit.upperBound.type === 'integer') {
-      if (ast.limit.lowerBound && ast.limit.lowerBound.type === 'integer') {
-        builder.limit = `${ast.limit.lowerBound.value}, ${ast.limit.upperBound.value}`;
-      } else {
-        builder.limit = `${ast.limit.upperBound.value}`;
+    if (ast.limit.upperBound && ast.limit.upperBound.type === 'literal') {
+      // LIMIT offset, count
+      if (ast.limit.lowerBound && ast.limit.lowerBound.type === 'literal') {
+        builder.limit = `${(ast.limit.lowerBound as Literal).value}, ${(ast.limit.upperBound as Literal).value}`;
       }
+    } else if (ast.limit.lowerBound && ast.limit.lowerBound.type === 'literal') {
+      // LIMIT count
+      builder.limit = `${(ast.limit.lowerBound as Literal).value}`;
     }
   }
 
   if (ast.sampleBy) {
     builder.mode = BuilderMode.Trend;
-    if (ast.sampleByAlignTo) {
-      (builder as SqlBuilderOptionsTrend).sampleByAlignTo = ast.sampleByAlignTo.alignTo as SampleByAlignToMode;
-    }
-    if (ast.sampleByFill) {
-      (builder as SqlBuilderOptionsTrend).sampleByFill = ast.sampleByFill.map((f) => {
-        if (f.type === 'sampleByKeyword') {
-          return f.keyword;
-        } else if (f.type === 'null') {
-          return 'null';
+    if (ast.sampleBy.alignTo) {
+      const alignTo = ast.sampleBy.alignTo;
+      if (alignTo.mode === 'firstObservation') {
+        (builder as SqlBuilderOptionsTrend).sampleByAlignTo = SampleByAlignToMode.FirstObservation;
+      } else if (alignTo.mode === 'calendar') {
+        if (alignTo.timeZone) {
+          (builder as SqlBuilderOptionsTrend).sampleByAlignTo = SampleByAlignToMode.CalendarTimeZone;
+        } else if (alignTo.offset) {
+          (builder as SqlBuilderOptionsTrend).sampleByAlignTo = SampleByAlignToMode.CalendarOffset;
         } else {
-          return f.value.toString();
+          (builder as SqlBuilderOptionsTrend).sampleByAlignTo = SampleByAlignToMode.Calendar;
         }
-      });
+      }
     }
-    if (ast.sampleByAlignTo?.alignValue) {
-      (builder as SqlBuilderOptionsTrend).sampleByAlignToValue = ast.sampleByAlignTo?.alignValue;
+    if (ast.sampleBy.fill) {
+      (builder as SqlBuilderOptionsTrend).sampleByFill = ast.sampleBy.fill;
+    }
+    if (ast.sampleBy.alignTo) {
+      const alignToValue = ast.sampleBy.alignTo.timeZone || ast.sampleBy.alignTo.offset;
+      if (alignToValue) {
+        (builder as SqlBuilderOptionsTrend).sampleByAlignToValue = alignToValue;
+      }
     }
   }
 
   if (ast.latestOn) {
     builder.mode = BuilderMode.List;
-    if (ast.partitionBy) {
-      (builder as SqlBuilderOptionsList).partitionBy = ast.partitionBy.map((p) => {
-        if (p.table) {
-          return p.table.name + '.' + p.name;
-        } else {
-          return p.name;
-        }
+    if (ast.latestOn.partitionBy) {
+      (builder as SqlBuilderOptionsList).partitionBy = ast.latestOn.partitionBy.map((p) => {
+        return p.parts.join('.');
       });
     }
   }
 
   const groupBy = ast.groupBy
     ?.map((gb) => {
-      if (gb.type !== 'ref' || gb.name === 'time') {
+      if (gb.type !== 'column') {
         return '';
       }
-      return gb.name;
+      const colName = (gb as ColumnRef).name.parts;
+      const name = colName[colName.length - 1];
+      if (name === 'time') {
+        return '';
+      }
+      return name;
     })
     .filter((x) => x !== '');
 
@@ -487,52 +500,11 @@ type MapperState = {
   condition: 'AND' | 'OR' | null;
 };
 
-function getFiltersFromAst(expr: Expr, fieldsToTypes: Map<string, string>): Filter[] {
+function getFiltersFromAst(expr: Expression, fieldsToTypes: Map<string, string>): Filter[] {
   let state: MapperState = { currentFilter: null, filters: [], notFlag: false, condition: null } as MapperState;
 
-  const visitor = astVisitor((mapper) => ({
-    expr: (e) => {
-      switch (e?.type) {
-        case 'binary':
-          getBinaryFilter(mapper, e, state);
-          break;
-        case 'boolean':
-          getBooleanFilter(e, state);
-          break;
-        case 'call':
-          getCallFilter(e, state);
-          break;
-        case 'cast':
-          getCastFilter(e, state);
-          break;
-        case 'integer':
-          getIntFilter(e, state);
-          break;
-        case 'list':
-          getListFilter(e, state);
-          break;
-        case 'numeric':
-          getNumericFilter(e, state);
-          break;
-        case 'ref':
-          getRefFilter(e, state, fieldsToTypes);
-          break;
-        case 'string':
-          getStringFilter(e, state);
-          break;
-        case 'unary':
-          getUnaryFilter(mapper, e, state);
-          break;
-        default:
-          console.error(`${e?.type} is not supported. This is likely a bug.`);
-          break;
-      }
-    },
-  }));
-
   try {
-    // don't break conversion
-    visitor.expr(expr);
+    visitExpr(expr, state, fieldsToTypes);
   } catch (error) {
     console.error(error);
   }
@@ -540,31 +512,99 @@ function getFiltersFromAst(expr: Expr, fieldsToTypes: Map<string, string>): Filt
   return state.filters;
 }
 
-function getRefFilter(e: ExprRef, state: MapperState, fieldsToTypes: Map<string, string>) {
+function visitExpr(e: Expression | undefined | null, state: MapperState, fieldsToTypes: Map<string, string>) {
+  if (!e) {
+    return;
+  }
+  switch (e.type) {
+    case 'binary':
+      getBinaryFilter(e as BinaryExpression, state, fieldsToTypes);
+      break;
+    case 'literal':
+      handleLiteral(e as Literal, state, fieldsToTypes);
+      break;
+    case 'function':
+      getCallFilter(e as FunctionCall, state);
+      break;
+    case 'cast':
+      getCastFilter(e as CastExpression, state);
+      break;
+    case 'column':
+      getRefFilter(e as ColumnRef, state, fieldsToTypes);
+      break;
+    case 'unary':
+      getUnaryFilter(e as UnaryExpression, state, fieldsToTypes);
+      break;
+    case 'in':
+      getInFilter(e as InExpression, state, fieldsToTypes);
+      break;
+    case 'isNull':
+      getIsNullFilter(e as IsNullExpression, state, fieldsToTypes);
+      break;
+    case 'paren': {
+      const paren = e as any;
+      visitExpr(paren.expression, state, fieldsToTypes);
+      break;
+    }
+    default:
+      console.error(`${e?.type} is not supported. This is likely a bug.`);
+      break;
+  }
+}
+
+function handleLiteral(e: Literal, state: MapperState, fieldsToTypes: Map<string, string>) {
+  switch (e.literalType) {
+    case 'boolean':
+      getBooleanFilter(e, state);
+      break;
+    case 'string':
+      getStringFilter(e, state);
+      break;
+    case 'number':
+      if (Number.isInteger(e.value)) {
+        getIntFilter(e, state);
+      } else {
+        getNumericFilter(e, state);
+      }
+      break;
+    case 'null':
+      // null literals handled elsewhere (IS NULL expressions)
+      break;
+    default:
+      break;
+  }
+}
+
+function getColumnName(e: ColumnRef): string {
+  return e.name.parts[e.name.parts.length - 1];
+}
+
+function getRefFilter(e: ColumnRef, state: MapperState, fieldsToTypes: Map<string, string>) {
+  const name = getColumnName(e);
   let doAdd = false;
   if (state.currentFilter === null) {
     state.currentFilter = {} as Filter;
     doAdd = true;
   }
 
-  if (e.name?.toLowerCase() === '$__fromtime') {
+  if (name?.toLowerCase() === '$__fromtime') {
     state.currentFilter = { ...state.currentFilter, value: 'GRAFANA_START_TIME', type: 'timestamp' } as Filter;
     return;
   }
 
-  if (e.name?.toLowerCase() === '$__totime') {
+  if (name?.toLowerCase() === '$__totime') {
     state.currentFilter = { ...state.currentFilter, value: 'GRAFANA_END_TIME', type: 'timestamp' } as Filter;
     return;
   }
 
-  let type = fieldsToTypes.get(e.name);
+  let type = fieldsToTypes.get(name);
   if (!state.currentFilter.key) {
-    state.currentFilter = { ...state.currentFilter, key: e.name };
+    state.currentFilter = { ...state.currentFilter, key: name };
     if (type) {
       state.currentFilter.type = type;
     }
   } else {
-    state.currentFilter = { ...state.currentFilter, value: [e.name], type: type || 'string' } as Filter;
+    state.currentFilter = { ...state.currentFilter, value: [name], type: type || 'string' } as Filter;
   }
 
   if (doAdd) {
@@ -573,62 +613,90 @@ function getRefFilter(e: ExprRef, state: MapperState, fieldsToTypes: Map<string,
   }
 }
 
-function getListFilter(e: ExprList, state: MapperState) {
+function getInFilter(e: InExpression, state: MapperState, fieldsToTypes: Map<string, string>) {
+  state.currentFilter = {} as Filter;
+  state.currentFilter.operator = e.not ? FilterOperator.NotIn : FilterOperator.In;
+  if (state.condition) {
+    state.currentFilter.condition = state.condition;
+    state.condition = null;
+  }
+  if (state.notFlag) {
+    if (state.currentFilter.operator === FilterOperator.In) {
+      state.currentFilter.operator = FilterOperator.NotIn;
+    }
+    state.notFlag = false;
+  }
+
+  // Extract key from expression (column ref)
+  visitExpr(e.expression, state, fieldsToTypes);
+
+  // Extract values
   state.currentFilter = {
     ...state.currentFilter,
-    value: e.expressions.map((x) => {
-      const k = x as ExprString;
-      return k.value;
+    value: e.values.map((x) => {
+      return (x as Literal).value;
     }),
-    type: 'string',
+    type: state.currentFilter?.type || 'string',
   } as Filter;
+
+  state.filters.push(state.currentFilter);
+  state.currentFilter = null;
 }
 
-function getCallString(e: ExprCall) {
+function getIsNullFilter(e: IsNullExpression, state: MapperState, fieldsToTypes: Map<string, string>) {
+  state.currentFilter = {
+    operator: e.not ? FilterOperator.IsNotNull : FilterOperator.IsNull,
+  } as Filter;
+  if (state.condition) {
+    state.currentFilter.condition = state.condition;
+    state.condition = null;
+  }
+  // Visit the expression to extract the column name (key)
+  visitExpr(e.expression, state, fieldsToTypes);
+  state.filters.push(state.currentFilter);
+  state.currentFilter = null;
+}
+
+function getCallString(e: FunctionCall): string {
   let args: string = e.args
     .map((x) => {
-      switch (x.type) {
-        case 'string':
-          return `'${x.value}'`;
-        case 'boolean':
-        case 'numeric':
-        case 'integer':
-          return x.value;
-        case 'ref':
-          return x.name;
-        case 'null':
-          return 'null';
-        case 'call':
-          return getCallString(x);
-        default:
-          return '';
-      }
+      return toString(x);
     })
     .join(', ');
 
-  return `${e.function.name}(${args})`;
+  if (e.star) {
+    args = '*';
+  }
+
+  return `${e.name}(${args})`;
 }
 
-function toString(x: Expr) {
+function toString(x: Expression): string | number | boolean {
   switch (x.type) {
-    case 'string':
-      return `'${x.value}'`;
-    case 'boolean':
-    case 'numeric':
-    case 'integer':
-      return x.value;
-    case 'ref':
-      return x.name;
-    case 'null':
-      return 'null';
-    case 'call':
-      return getCallString(x);
+    case 'literal': {
+      const lit = x as Literal;
+      if (lit.literalType === 'string') {
+        return `'${lit.value}'`;
+      }
+      if (lit.literalType === 'null') {
+        return 'null';
+      }
+      return lit.value as number | boolean;
+    }
+    case 'column':
+      return getColumnName(x as ColumnRef);
+    case 'function':
+      return getCallString(x as FunctionCall);
+    case 'unary': {
+      const unary = x as UnaryExpression;
+      return `${unary.operator}${toString(unary.operand)}`;
+    }
     default:
       return '';
   }
 }
 
-function getCallFilter(e: ExprCall, state: MapperState) {
+function getCallFilter(e: FunctionCall, state: MapperState) {
   let doAdd = false;
   if (!state.currentFilter) {
     // map f(x) to true = f(x) so it can be displayed in builder
@@ -636,17 +704,24 @@ function getCallFilter(e: ExprCall, state: MapperState) {
     doAdd = true;
   }
 
-  let args = e.args
-    .map((x) => {
-      return toString(x);
-    })
-    .join(', ');
-  const val = `${e.function.name}(${args})`;
+  let args: string;
+  if (e.star) {
+    args = '*';
+  } else {
+    args = e.args
+      .map((x) => {
+        return toString(x);
+      })
+      .join(', ');
+  }
+  const val = `${e.name}(${args})`;
 
-  if (val.startsWith('$__timefilter(')) {
+  if (val.toLowerCase().startsWith('$__timefilter(')) {
+    const firstArg = e.args[0];
+    const argName = firstArg && firstArg.type === 'column' ? getColumnName(firstArg as ColumnRef) : '';
     state.currentFilter = {
       ...state.currentFilter,
-      key: (e.args[0] as ExprRef).name,
+      key: argName,
       operator: state.notFlag ? FilterOperator.OutsideGrafanaTimeRange : FilterOperator.WithInGrafanaTimeRange,
       type: 'timestamp',
     } as Filter;
@@ -665,27 +740,28 @@ function getCallFilter(e: ExprCall, state: MapperState) {
   }
 }
 
-function getUnaryFilter(mapper: IAstVisitor, e: ExprUnary, state: MapperState) {
-  if (e.op === 'NOT') {
+function getUnaryFilter(e: UnaryExpression, state: MapperState, fieldsToTypes: Map<string, string>) {
+  if (e.operator === 'NOT') {
     state.notFlag = true;
-    mapper.super().expr(e);
+    visitExpr(e.operand, state, fieldsToTypes);
     state.notFlag = false;
     return;
   }
 
-  state.currentFilter = { operator: e.op as FilterOperator } as Filter;
+  // Other unary operators (shouldn't happen often with new parser, IS NULL/NOT handled separately)
+  state.currentFilter = { operator: e.operator as FilterOperator } as Filter;
   if (state.condition) {
     state.currentFilter.condition = state.condition;
     state.condition = null;
   }
-  mapper.super().expr(e);
+  visitExpr(e.operand, state, fieldsToTypes);
   state.filters.push(state.currentFilter);
   state.currentFilter = null;
 }
 
-function getStringFilter(e: ExprString, state: MapperState) {
+function getStringFilter(e: Literal, state: MapperState) {
   if (state.currentFilter != null && !state.currentFilter.key) {
-    state.currentFilter = { ...state.currentFilter, key: e.value } as Filter;
+    state.currentFilter = { ...state.currentFilter, key: e.value as string } as Filter;
     return;
   }
   state.currentFilter = {
@@ -695,24 +771,24 @@ function getStringFilter(e: ExprString, state: MapperState) {
   } as Filter;
 }
 
-function getNumericFilter(e: ExprNumeric, state: MapperState) {
+function getNumericFilter(e: Literal, state: MapperState) {
   if (state.currentFilter != null && !state.currentFilter.key) {
-    state.currentFilter = { ...state.currentFilter, key: e.value.toString() } as Filter;
+    state.currentFilter = { ...state.currentFilter, key: (e.value as number).toString() } as Filter;
     return;
   }
   state.currentFilter = { ...state.currentFilter, value: e.value, type: 'double' } as Filter;
 }
 
-function getIntFilter(e: ExprInteger, state: MapperState) {
+function getIntFilter(e: Literal, state: MapperState) {
   if (state.currentFilter != null && !state.currentFilter.key) {
-    state.currentFilter = { ...state.currentFilter, key: e.value.toString() } as Filter;
+    state.currentFilter = { ...state.currentFilter, key: (e.value as number).toString() } as Filter;
     return;
   }
   state.currentFilter = { ...state.currentFilter, value: e.value, type: 'int' } as Filter;
 }
 
-function getCastFilter(e: ExprCast, state: MapperState) {
-  let val = `cast( ${toString(e.operand)} as ${e.to.kind === undefined ? e.to.name : ''} )`;
+function getCastFilter(e: CastExpression, state: MapperState) {
+  let val = `cast( ${toString(e.expression)} as ${e.dataType.toLowerCase()} )`;
 
   if (state.currentFilter != null && !state.currentFilter.key) {
     state.currentFilter = { ...state.currentFilter, key: val } as Filter;
@@ -722,19 +798,19 @@ function getCastFilter(e: ExprCast, state: MapperState) {
   }
 }
 
-function getBooleanFilter(e: ExprBool, state: MapperState) {
+function getBooleanFilter(e: Literal, state: MapperState) {
   state.currentFilter = { ...state.currentFilter, value: e.value, type: 'boolean' } as Filter;
 }
 
-function getBinaryFilter(mapper: IAstVisitor, e: ExprBinary, state: MapperState) {
-  if (e.op === 'AND' || e.op === 'OR') {
-    mapper.expr(e.left);
-    state.condition = e.op;
-    mapper.expr(e.right);
+function getBinaryFilter(e: BinaryExpression, state: MapperState, fieldsToTypes: Map<string, string>) {
+  if (e.operator === 'AND' || e.operator === 'OR') {
+    visitExpr(e.left, state, fieldsToTypes);
+    state.condition = e.operator;
+    visitExpr(e.right, state, fieldsToTypes);
     state.condition = null;
-  } else if (Object.values(FilterOperator).find((x) => e.op === x)) {
+  } else if (Object.values(FilterOperator).find((x) => e.operator === x)) {
     state.currentFilter = {} as Filter;
-    state.currentFilter.operator = e.op as FilterOperator;
+    state.currentFilter.operator = e.operator as FilterOperator;
     if (state.condition) {
       state.currentFilter.condition = state.condition;
       state.condition = null;
@@ -743,38 +819,46 @@ function getBinaryFilter(mapper: IAstVisitor, e: ExprBinary, state: MapperState)
       state.currentFilter.operator = FilterOperator.NotLike;
       state.notFlag = false;
     }
-    mapper.expr(e.left);
-    mapper.expr(e.right);
+    visitExpr(e.left, state, fieldsToTypes);
+    visitExpr(e.right, state, fieldsToTypes);
     state.filters.push(state.currentFilter);
     state.currentFilter = null;
   }
 }
 
-function selectCallFunc(s: SelectedColumn): BuilderMetricField | string {
-  if (s.expr.type !== 'call') {
+function selectCallFunc(s: ExpressionSelectItem): BuilderMetricField | string {
+  if (s.expression.type !== 'function') {
     return {} as BuilderMetricField;
   }
-  let fields = s.expr.args.map((x) => {
-    if (x.type !== 'ref') {
-      return '';
-    }
-    return x.name;
-  });
+  const funcExpr = s.expression as FunctionCall;
+  let fields: string[];
+
+  if (funcExpr.star) {
+    fields = ['*'];
+  } else {
+    fields = funcExpr.args.map((x) => {
+      if (x.type !== 'column') {
+        return '';
+      }
+      return getColumnName(x as ColumnRef);
+    });
+  }
+
   if (
     Object.values(BuilderMetricFieldAggregation).includes(
-      s.expr.function.name.toLowerCase() as BuilderMetricFieldAggregation
+      funcExpr.name.toLowerCase() as BuilderMetricFieldAggregation
     )
   ) {
     return {
-      aggregation: s.expr.function.name as BuilderMetricFieldAggregation,
+      aggregation: funcExpr.name.toLowerCase() as BuilderMetricFieldAggregation,
       field: fields[0],
-      alias: s.alias?.name,
+      alias: s.alias,
     } as BuilderMetricField;
   }
-  return toString(s.expr).toString();
+  return toString(s.expression).toString();
 }
 
-function getMetricsFromAst(selectClauses: SelectedColumn[] | null): {
+function getMetricsFromAst(selectClauses: SelectItem[] | null): {
   metrics: BuilderMetricField[];
   fields: string[];
 } {
@@ -785,12 +869,20 @@ function getMetricsFromAst(selectClauses: SelectedColumn[] | null): {
   const fields: string[] = [];
 
   for (let s of selectClauses) {
-    switch (s.expr.type) {
-      case 'ref':
-        fields.push(s.expr.name);
+    if (s.type === 'star') {
+      fields.push('*');
+      continue;
+    }
+    if (s.type !== 'selectItem') {
+      continue;
+    }
+    const item = s as ExpressionSelectItem;
+    switch (item.expression.type) {
+      case 'column':
+        fields.push(getColumnName(item.expression as ColumnRef));
         break;
-      case 'call':
-        const f = selectCallFunc(s);
+      case 'function':
+        const f = selectCallFunc(item);
         if (!f) {
           break;
         }
@@ -800,17 +892,25 @@ function getMetricsFromAst(selectClauses: SelectedColumn[] | null): {
           metrics.push(f);
         }
         break;
-      case 'string':
-        fields.push(`'${s.expr.value}'`);
+      case 'literal': {
+        const lit = item.expression as Literal;
+        if (lit.literalType === 'string') {
+          fields.push(`'${lit.value}'`);
+        } else {
+          fields.push(`${lit.value}`);
+        }
         break;
-      case 'numeric':
-      case 'boolean':
-      case 'integer':
-        fields.push(`${s.expr.value}`);
+      }
+      case 'cast': {
+        const cast = item.expression as CastExpression;
+        fields.push(`cast(${toString(cast.expression)}  as ${cast.dataType.toLowerCase()})`);
         break;
-      case 'cast':
-        fields.push(`cast(${toString(s.expr.operand)}  as ${s.expr.to.kind === undefined ? s.expr.to?.name : ''})`);
+      }
+      case 'typeCast': {
+        const typeCast = item.expression as any;
+        fields.push(`cast(${toString(typeCast.expression)}  as ${typeCast.dataType.toLowerCase()})`);
         break;
+      }
       default:
         break;
     }

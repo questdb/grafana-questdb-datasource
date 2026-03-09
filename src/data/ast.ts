@@ -1,11 +1,35 @@
-import { parseFirst, Statement, SelectFromStatement, astMapper, toSql, ExprRef } from '@questdb/sql-ast-parser';
+import { parseOne, toSql, type Statement, type SelectStatement, type ColumnRef, type QualifiedName, type ExpressionSelectItem } from '@questdb/sql-parser';
+
+export type ReplaceFuncItem = {
+  startIndex: number;
+  name: string;
+  replacementName: string;
+};
+
+export function deepReplaceStrings(obj: any, replaceFuncs: ReplaceFuncItem[]): any {
+  if (typeof obj === 'string') {
+    for (const rf of replaceFuncs) {
+      if (obj.includes(rf.replacementName)) {
+        return obj.replace(rf.replacementName, rf.name);
+      }
+    }
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map((item) => deepReplaceStrings(item, replaceFuncs));
+  }
+  if (obj && typeof obj === 'object') {
+    const result: any = {};
+    for (const key of Object.keys(obj)) {
+      result[key] = deepReplaceStrings(obj[key], replaceFuncs);
+    }
+    return result;
+  }
+  return obj;
+}
 
 export function sqlToStatement(sql: string): Statement {
-  const replaceFuncs: Array<{
-    startIndex: number;
-    name: string;
-    replacementName: string;
-  }> = [];
+  const replaceFuncs: ReplaceFuncItem[] = [];
   // questdb parser accepts only number followed by letter as sample by argument, so we've to use specific id
   const re = /(\$__sampleByInterval|\$__|\$)/gi;
   let regExpArray: RegExpExecArray | null;
@@ -31,85 +55,59 @@ export function sqlToStatement(sql: string): Statement {
 
   let ast: Statement;
   try {
-    ast = parseFirst(sql);
+    ast = parseOne(sql);
   } catch (err) {
     //console.debug(`Failed to parse SQL statement into an AST: ${err}`);
     return {} as Statement;
   }
 
-  const mapper = astMapper((map) => ({
-    constant: (c) => {
-      if (c.type === 'sampleByUnit') {
-        const rf = replaceFuncs.find((x) => c.value.startsWith(x.replacementName));
-        if (rf) {
-          return {...c, value: c.value.replace(rf.replacementName, rf.name)};
-        }
-      }
-      return map.super().constant(c);
-    },
-    tableRef: (t) => {
-      const rfs = replaceFuncs.find((x) => x.replacementName === t.schema);
-      if (rfs) {
-        return { ...t, schema: t.schema?.replace(rfs.replacementName, rfs.name) };
-      }
-      const rft = replaceFuncs.find((x) => x.replacementName === t.name);
-      if (rft) {
-        return { ...t, name: t.name.replace(rft.replacementName, rft.name) };
-      }
-      return map.super().tableRef(t);
-    },
-    ref: (r) => {
-      const rf = replaceFuncs.find((x) => r.name.startsWith(x.replacementName));
-      if (rf) {
-        const d = r.name.replace(rf.replacementName, rf.name);
-        return { ...r, name: d };
-      }
-      return map.super().ref(r);
-    },
-    call: (c) => {
-      const rf = replaceFuncs.find((x) => c.function.name.startsWith(x.replacementName));
-      if (rf) {
-        return { ...c, function: { ...c.function, name: c.function.name.replace(rf.replacementName, rf.name) } };
-      }
-      return map.super().call(c);
-    },
-  }));
-  return mapper.statement(ast)!;
+  return deepReplaceStrings(ast, replaceFuncs);
 }
 
 export function getTable(sql: string): string {
-  const stm = sqlToStatement(sql);
+  const stm = sqlToStatement(sql) as SelectStatement;
   if (stm.type !== 'select' || !stm.from?.length || stm.from?.length <= 0) {
     return '';
   }
-  switch (stm.from![0].type) {
-    case 'table': {
-      const table = stm.from![0];
-      return `${table.name.name}`;
+  const tableRef = stm.from![0];
+  switch (tableRef.table.type) {
+    case 'qualifiedName': {
+      const parts = (tableRef.table as QualifiedName).parts;
+      return parts[parts.length - 1];
     }
-    case 'statement': {
-      const table = stm.from![0];
-      return getTable(toSql.statement(table.statement));
+    case 'select': {
+      return getTable(toSql(tableRef.table as SelectStatement));
     }
   }
   return '';
 }
 
 export function getFields(sql: string): string[] {
-  const stm = sqlToStatement(sql) as SelectFromStatement;
+  const stm = sqlToStatement(sql) as SelectStatement;
   if (stm.type !== 'select' || !stm.columns?.length || stm.columns?.length <= 0) {
     return [];
   }
 
   return stm.columns.map((x) => {
-    const exprName = (x.expr as ExprRef).name;
-    if (!exprName){
+    if (x.type === 'star') {
+      return '*';
+    }
+    if (x.type !== 'selectItem') {
       return '';
     }
-    if (x.alias !== undefined) {
-      return `${exprName} as ${x.alias?.name}`;
+    const item = x as ExpressionSelectItem;
+    if (item.expression.type !== 'column') {
+      return '';
+    }
+    const colRef = item.expression as ColumnRef;
+    const colName = colRef.name.parts[colRef.name.parts.length - 1];
+    if (!colName) {
+      return '';
+    }
+    if (item.alias !== undefined) {
+      return `${colName} as ${item.alias}`;
     } else {
-      return `${exprName}`;
+      return `${colName}`;
     }
   });
 }
