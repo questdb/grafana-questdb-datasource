@@ -43,7 +43,36 @@ yarn install
 
 ## 2. Build
 
-### 2.1 Frontend build
+### 2.1 Update dependencies and fix vulnerabilities
+
+Before releasing, make sure dependencies are up to date. The CI plugin validator will **fail the release** if:
+- The Grafana Go SDK is older than 5 months
+- `osv-scanner` finds high severity vulnerabilities in `go.mod` or `yarn.lock`
+
+**Go dependencies:**
+```bash
+go get -u github.com/grafana/grafana-plugin-sdk-go
+go mod tidy
+go test -v -count=1 ./...
+```
+
+**npm vulnerabilities:**
+```bash
+yarn audit
+```
+
+If there are high severity issues, add resolutions in `package.json` to force patched versions. For example:
+
+```json
+"resolutions": {
+  "minimatch": "^3.1.3",
+  "serialize-javascript": "^7.0.4"
+}
+```
+
+Then `yarn install` and verify the build and tests still pass.
+
+### 2.2 Frontend build
 
 ```bash
 yarn build
