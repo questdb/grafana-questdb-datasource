@@ -58,7 +58,10 @@ func (h *QuestDB) Connect(ctx context.Context, config backend.DataSourceInstance
 		return nil, err
 	}
 
-	log.DefaultLogger.Error("QuestDB connection string", "str", connstr)
+	log.DefaultLogger.Debug("QuestDB connection string generated",
+		"server", settings.Server,
+		"port", settings.Port,
+		"tlsMode", settings.TlsMode)
 
 	connector, err := pq.NewConnector(connstr)
 	if err != nil {
