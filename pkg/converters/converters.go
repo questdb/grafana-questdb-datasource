@@ -39,6 +39,11 @@ var Converters = map[string]Converter{
 		fieldType: data.FieldTypeNullableTime,
 		scanType:  reflect.PtrTo(reflect.PtrTo(reflect.TypeOf(time.Time{}))),
 	},
+	"TIMESTAMP_NS": {
+		convert:   timestampNullableConvert,
+		fieldType: data.FieldTypeNullableTime,
+		scanType:  reflect.PtrTo(reflect.PtrTo(reflect.TypeOf(time.Time{}))),
+	},
 }
 
 var QdbConverters = QuestDBConverters()

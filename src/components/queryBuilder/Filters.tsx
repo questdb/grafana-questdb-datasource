@@ -323,7 +323,7 @@ export const FilterEditor = (props: {
       newFilter = {
         filterType: 'custom',
         key: filterData.key,
-        type: filterData.type as 'date',
+        type: filterData.type as 'date' | 'timestamp' | 'timestamp_ns',
         condition: filter.condition || 'AND',
         operator: FilterOperator.Equals,
         value: '', //TODAY
