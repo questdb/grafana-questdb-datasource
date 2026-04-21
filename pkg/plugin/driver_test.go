@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types/mount"
 	"github.com/lib/pq"
 
-	"github.com/docker/docker/api/types/container"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
