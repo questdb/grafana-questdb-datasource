@@ -279,7 +279,7 @@ export interface NumberFilter extends CommonFilterProps {
 }
 
 export interface DateFilterWithValue extends CommonFilterProps {
-  type: 'timestamp' | 'date';
+  type: 'timestamp' | 'timestamp_ns' | 'date';
   operator:
     | FilterOperator.Equals
     | FilterOperator.NotEquals
@@ -291,7 +291,7 @@ export interface DateFilterWithValue extends CommonFilterProps {
 }
 
 export interface DateFilterWithoutValue extends CommonFilterProps {
-  type: 'timestamp' | 'date';
+  type: 'timestamp' | 'timestamp_ns' | 'date';
   operator: FilterOperator.WithInGrafanaTimeRange | FilterOperator.OutsideGrafanaTimeRange;
 }
 

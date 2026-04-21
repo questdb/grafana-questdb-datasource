@@ -54,10 +54,10 @@ export const isNullableNumberType = (type: string): boolean => {
 };
 
 export const isDateType = (type: string): boolean => {
-  return ['date', 'timestamp'].includes(type?.toLowerCase());
+  return ['date', 'timestamp', 'timestamp_ns'].includes(type?.toLowerCase());
 };
 export const isTimestampType = (type: string): boolean => {
-  return ['timestamp'].includes(type?.toLowerCase());
+  return ['timestamp', 'timestamp_ns'].includes(type?.toLowerCase());
 };
 
 export const isIPv4Type = (type: string): boolean => {

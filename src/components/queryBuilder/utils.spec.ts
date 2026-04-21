@@ -63,6 +63,12 @@ describe('isDateType', () => {
     expect(isDateType('timestamp')).toBe(true);
   });
 
+  it('returns true for timestamp_ns type', () => {
+    expect(isDateType('timestamp_ns')).toBe(true);
+    expect(isDateType('Timestamp_ns')).toBe(true);
+    expect(isDateType('TIMESTAMP_NS')).toBe(true);
+  });
+
   it('returns false for other types', () => {
     expect(isDateType('boolean')).toBe(false);
     expect(isDateType('Boolean')).toBe(false);
@@ -73,6 +79,11 @@ describe('isTimestampType', () => {
   it('returns true for timestamp type', () => {
     expect(isTimestampType('Timestamp')).toBe(true);
     expect(isTimestampType('timestamp')).toBe(true);
+  });
+  it('returns true for timestamp_ns type', () => {
+    expect(isTimestampType('timestamp_ns')).toBe(true);
+    expect(isTimestampType('Timestamp_ns')).toBe(true);
+    expect(isTimestampType('TIMESTAMP_NS')).toBe(true);
   });
   it('returns false for Date type', () => {
     expect(isTimestampType('Date')).toBe(false);
