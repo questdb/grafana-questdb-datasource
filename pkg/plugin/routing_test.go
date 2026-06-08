@@ -137,6 +137,12 @@ func TestResolveServiceAccount(t *testing.T) {
 		assert.Equal(t, "", s.resolveServiceAccount(nil, nil))
 		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "nobody"}, nil))
 	})
+
+	t.Run("whitespace around the mapping username still matches", func(t *testing.T) {
+		s := Settings{ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "  john  ", ServiceAccount: "sa_analysts"}}}
+		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "john"}, nil))
+		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "  john  "}, nil))
+	})
 }
 
 func TestResolveServiceAccountGroups(t *testing.T) {
@@ -529,6 +535,39 @@ func TestMutateQueryData(t *testing.T) {
 		_, out := h.MutateQueryData(ctx, req)
 		assert.JSONEq(t, `{"serviceAccount":"sa_default"}`, string(stamped(t, out)))
 	})
+
+	t.Run("client-supplied connectionArgs is overwritten for a mapped user", func(t *testing.T) {
+		// A query payload that smuggles its own service account must not survive: the
+		// resolved account replaces it so the client cannot pick its own memory limit.
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: mutateDSI(routingEnabled), User: &backend.User{Login: "john"}},
+			Queries: []backend.DataQuery{
+				{RefID: "A", JSON: []byte(`{"rawSql":"select 1","connectionArgs":{"serviceAccount":"sa_evil"}}`)},
+			},
+		}
+		_, out := h.MutateQueryData(ctx, req)
+		assert.JSONEq(t, `{"serviceAccount":"sa_analysts"}`, string(stamped(t, out)))
+	})
+
+	t.Run("client-supplied connectionArgs is stripped when the user resolves to no account", func(t *testing.T) {
+		// Unmapped user, no default: the base login is used, but the client's smuggled
+		// connectionArgs must be removed rather than honored (otherwise it would select
+		// an arbitrary account the base login can assume).
+		noDefault := `"serviceAccountRoutingEnabled": true,
+			"serviceAccountMappings": [{ "grafanaUser": "john", "serviceAccount": "sa_analysts" }]`
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: mutateDSI(noDefault), User: &backend.User{Login: "nobody"}},
+			Queries: []backend.DataQuery{
+				{RefID: "A", JSON: []byte(`{"rawSql":"select 1","connectionArgs":{"serviceAccount":"sa_evil"}}`)},
+			},
+		}
+		_, out := h.MutateQueryData(ctx, req)
+		var m map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(out.Queries[0].JSON, &m))
+		_, ok := m["connectionArgs"]
+		assert.False(t, ok, "client-supplied connectionArgs must be stripped, not honored")
+		assert.JSONEq(t, `"select 1"`, string(m["rawSql"]))
+	})
 }
 
 func TestWithConnectionArgs(t *testing.T) {
@@ -561,6 +600,20 @@ func TestWithConnectionArgs(t *testing.T) {
 		// A JSON array cannot be unmarshalled into map[string]json.RawMessage.
 		in := json.RawMessage(`["a","b"]`)
 		assert.Equal(t, string(in), string(withConnectionArgs(in, connArgs)))
+	})
+
+	t.Run("nil connArgs removes an existing connectionArgs", func(t *testing.T) {
+		in := json.RawMessage(`{"rawSql":"select 1","connectionArgs":{"serviceAccount":"sa_evil"}}`)
+		var m map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(withConnectionArgs(in, nil), &m))
+		_, ok := m["connectionArgs"]
+		assert.False(t, ok)
+		assert.JSONEq(t, `"select 1"`, string(m["rawSql"]))
+	})
+
+	t.Run("nil connArgs leaves bytes untouched when no connectionArgs present", func(t *testing.T) {
+		in := json.RawMessage(`{"rawSql":"select 1","format":1}`)
+		assert.Equal(t, string(in), string(withConnectionArgs(in, nil)))
 	})
 }
 

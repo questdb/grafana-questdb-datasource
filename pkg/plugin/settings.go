@@ -253,14 +253,21 @@ func LoadServiceAccountSettings(config backend.DataSourceInstanceSettings) Setti
 // silently make a mapped user bypass the cap by dropping to the base login — such a user
 // falls through to the next step instead. Returned names are whitespace-trimmed.
 func (settings *Settings) resolveServiceAccount(user *backend.User, groups []string) string {
-	// 1. Username mapping (most specific).
-	if user != nil && user.Login != "" {
+	// 1. Username mapping (most specific). Both sides are whitespace-trimmed before the
+	// case-insensitive compare, matching the group path below, so an operator's stray
+	// space in a mapping row does not silently prevent a match.
+	var login string
+	if user != nil {
+		login = strings.TrimSpace(user.Login)
+	}
+	if login != "" {
 		for _, m := range settings.ServiceAccountMappings {
-			if strings.TrimSpace(m.ServiceAccount) == "" {
+			sa := strings.TrimSpace(m.ServiceAccount)
+			if sa == "" {
 				continue
 			}
-			if strings.EqualFold(m.GrafanaUser, user.Login) {
-				return strings.TrimSpace(m.ServiceAccount)
+			if strings.EqualFold(strings.TrimSpace(m.GrafanaUser), login) {
+				return sa
 			}
 		}
 	}

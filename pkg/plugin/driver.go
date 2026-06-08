@@ -298,14 +298,20 @@ func (h *QuestDB) MutateQueryData(ctx context.Context, req *backend.QueryDataReq
 	if len(settings.ServiceAccountGroupMappings) > 0 {
 		groups = extractGroups(req.GetHTTPHeader(backend.OAuthIdentityIDTokenHeaderName), settings.GroupsClaim)
 	}
-	sa := settings.resolveServiceAccount(req.PluginContext.User, groups)
-	if sa == "" {
-		return ctx, req // base pool, no ASSUME
-	}
-	connArgs, err := json.Marshal(connectionArgs{ServiceAccount: sa})
-	if err != nil {
-		log.DefaultLogger.Error("QuestDB failed to marshal connectionArgs", "error", err)
-		return ctx, req
+	// When routing is enabled connectionArgs is plugin-owned: stamp the resolved account,
+	// or strip any client-supplied connectionArgs when the user resolves to no account, so
+	// the service account stays server-resolved from a verified identity and a query payload
+	// can never select its own account (and thus its own memory limit).
+	var connArgs json.RawMessage
+	if sa := settings.resolveServiceAccount(req.PluginContext.User, groups); sa != "" {
+		marshaled, err := json.Marshal(connectionArgs{ServiceAccount: sa})
+		if err != nil {
+			// Marshaling a single validated string should never fail; if it somehow does,
+			// fall through with connArgs == nil so the client value is stripped (fail closed).
+			log.DefaultLogger.Error("QuestDB failed to marshal connectionArgs", "error", err)
+		} else {
+			connArgs = marshaled
+		}
 	}
 	for i := range req.Queries {
 		req.Queries[i].JSON = withConnectionArgs(req.Queries[i].JSON, connArgs)
@@ -313,15 +319,24 @@ func (h *QuestDB) MutateQueryData(ctx context.Context, req *backend.QueryDataReq
 	return ctx, req
 }
 
-// withConnectionArgs merges "connectionArgs": <connArgs> into a query JSON object,
-// preserving existing fields (rawSql, format, ...). On malformed JSON it returns the
-// input unchanged.
+// withConnectionArgs sets the "connectionArgs" field of a query JSON object to connArgs,
+// preserving all other fields (rawSql, format, ...). A nil connArgs instead removes the
+// field — this is how a client-supplied value is stripped when the user resolves to no
+// service account (the field is left untouched when there is nothing to strip). On
+// malformed (non-object) JSON it returns the input unchanged.
 func withConnectionArgs(queryJSON, connArgs json.RawMessage) json.RawMessage {
 	m := map[string]json.RawMessage{}
 	if err := json.Unmarshal(queryJSON, &m); err != nil {
 		return queryJSON
 	}
-	m["connectionArgs"] = connArgs
+	if connArgs == nil {
+		if _, ok := m["connectionArgs"]; !ok {
+			return queryJSON // nothing to strip; leave the bytes untouched
+		}
+		delete(m, "connectionArgs")
+	} else {
+		m["connectionArgs"] = connArgs
+	}
 	out, err := json.Marshal(m)
 	if err != nil {
 		return queryJSON
@@ -368,13 +383,10 @@ func extractGroups(idToken, claim string) []string {
 	return groups
 }
 
-// decodeJWTSegment base64url-decodes a single JWT segment, tolerating both the canonical
-// unpadded form and padded variants.
+// decodeJWTSegment base64url-decodes a single JWT segment. JWT segments use canonical
+// unpadded base64url; TrimRight tolerates accidentally-padded variants too.
 func decodeJWTSegment(seg string) ([]byte, error) {
-	if m := len(seg) % 4; m != 0 {
-		seg += strings.Repeat("=", 4-m)
-	}
-	return base64.URLEncoding.DecodeString(seg)
+	return base64.RawURLEncoding.DecodeString(strings.TrimRight(seg, "="))
 }
 
 // MutateResponse For any view other than traces we convert FieldTypeNullableJSON to string

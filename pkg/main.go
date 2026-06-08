@@ -21,10 +21,13 @@ func main() {
 
 func newDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	ds := sqlds.NewDatasource(&plugin.QuestDB{})
-	// Enables per-service-account connection pools for service-account routing. Safe to
-	// set unconditionally: when routing is off (or a query carries no connectionArgs),
-	// sqlds returns the default pool, so behavior is identical to before. ForwardHeaders
-	// is intentionally left off so HTTP headers are not folded into the pool cache key.
-	ds.EnableMultipleConnections = true
+	// Per-service-account connection pools are only needed when routing is enabled, so we
+	// gate this on the routing flag. Leaving it off for routing-disabled data sources keeps
+	// the prior single-pool behavior, where a query carrying connectionArgs is rejected
+	// rather than spawning cached pools keyed by client-supplied args. When routing is on,
+	// MutateQueryData owns connectionArgs (it strips any client value), so the number of
+	// distinct pools is bounded by the configured service accounts. ForwardHeaders is
+	// intentionally left off so HTTP headers are not folded into the pool cache key.
+	ds.EnableMultipleConnections = plugin.LoadServiceAccountSettings(settings).ServiceAccountRoutingEnabled
 	return ds.NewDatasource(ctx, settings)
 }

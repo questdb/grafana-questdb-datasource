@@ -482,7 +482,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
                       width={30}
                       value={m.serviceAccount}
                       placeholder={Components.ConfigEditor.ServiceAccountGroupMappings.serviceAccountPlaceholder}
-                      aria-label={`${Components.ConfigEditor.ServiceAccountGroupMappings.groupPlaceholder} service account ${i + 1}`}
+                      aria-label={`${Components.ConfigEditor.ServiceAccountGroupMappings.groupPlaceholder} ${Components.ConfigEditor.ServiceAccountGroupMappings.serviceAccountPlaceholder} ${i + 1}`}
                       onChange={(e) => onUpdateGroupMapping(i, 'serviceAccount', e.currentTarget.value)}
                     />
                     <IconButton
