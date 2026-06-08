@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { ConfigEditor } from './QuestDBConfigEditor';
 import { mockConfigEditorProps } from '../__mocks__/ConfigEditor';
 import { Components } from './../selectors';
@@ -97,5 +97,123 @@ describe('ConfigEditor', () => {
     render(<ConfigEditor {...mockConfigEditorProps(jsonDataOverrides)} />);
     expect(screen.getByPlaceholderText(Components.ConfigEditor.Timeout.placeholder)).toBeInTheDocument();
     expect(screen.getByText(Components.ConfigEditor.SecureSocksProxy.label)).toBeInTheDocument();
+  });
+
+  describe('service account routing', () => {
+    const lastJsonData = (props: ReturnType<typeof mockConfigEditorProps>) => {
+      const calls = (props.onOptionsChange as jest.Mock).mock.calls;
+      return calls[calls.length - 1][0].jsonData;
+    };
+
+    it('renders the routing toggle and hides details when disabled', () => {
+      render(<ConfigEditor {...mockConfigEditorProps()} />);
+      expect(screen.getByText(Components.ConfigEditor.ServiceAccountRouting.label)).toBeInTheDocument();
+      expect(
+        screen.queryByPlaceholderText(Components.ConfigEditor.DefaultServiceAccount.placeholder)
+      ).not.toBeInTheDocument();
+    });
+
+    it('shows default service account and mappings when enabled', () => {
+      render(
+        <ConfigEditor
+          {...mockConfigEditorProps({
+            serviceAccountRoutingEnabled: true,
+            defaultServiceAccount: 'sa_default',
+            serviceAccountMappings: [{ grafanaUser: 'john', serviceAccount: 'sa_analysts' }],
+          })}
+        />
+      );
+      expect(
+        screen.getByPlaceholderText(Components.ConfigEditor.DefaultServiceAccount.placeholder)
+      ).toBeInTheDocument();
+      expect(screen.getByDisplayValue('sa_default')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('john')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('sa_analysts')).toBeInTheDocument();
+    });
+
+    it('toggling the switch enables routing', () => {
+      const props = mockConfigEditorProps();
+      render(<ConfigEditor {...props} />);
+      fireEvent.click(screen.getByLabelText(Components.ConfigEditor.ServiceAccountRouting.label));
+      expect(lastJsonData(props).serviceAccountRoutingEnabled).toBe(true);
+    });
+
+    it('adds a mapping row', () => {
+      const props = mockConfigEditorProps({ serviceAccountRoutingEnabled: true });
+      render(<ConfigEditor {...props} />);
+      fireEvent.click(screen.getByText(Components.ConfigEditor.ServiceAccountMappings.addLabel));
+      expect(lastJsonData(props).serviceAccountMappings).toEqual([{ grafanaUser: '', serviceAccount: '' }]);
+    });
+
+    it('updates a mapping field', () => {
+      const props = mockConfigEditorProps({
+        serviceAccountRoutingEnabled: true,
+        serviceAccountMappings: [{ grafanaUser: '', serviceAccount: '' }],
+      });
+      render(<ConfigEditor {...props} />);
+      fireEvent.change(screen.getByPlaceholderText(Components.ConfigEditor.ServiceAccountMappings.grafanaUserPlaceholder), {
+        target: { value: 'alice' },
+      });
+      expect(lastJsonData(props).serviceAccountMappings).toEqual([{ grafanaUser: 'alice', serviceAccount: '' }]);
+    });
+
+    it('removes a mapping row', () => {
+      const props = mockConfigEditorProps({
+        serviceAccountRoutingEnabled: true,
+        serviceAccountMappings: [{ grafanaUser: 'john', serviceAccount: 'sa_analysts' }],
+      });
+      render(<ConfigEditor {...props} />);
+      fireEvent.click(
+        screen.getByRole('button', { name: `${Components.ConfigEditor.ServiceAccountMappings.removeLabel} 1` })
+      );
+      expect(lastJsonData(props).serviceAccountMappings).toEqual([]);
+    });
+
+    it('editing the default service account updates jsonData', () => {
+      const props = mockConfigEditorProps({ serviceAccountRoutingEnabled: true });
+      render(<ConfigEditor {...props} />);
+      fireEvent.change(screen.getByPlaceholderText(Components.ConfigEditor.DefaultServiceAccount.placeholder), {
+        target: { value: 'sa_default' },
+      });
+      expect(lastJsonData(props).defaultServiceAccount).toBe('sa_default');
+    });
+
+    it('removes the correct row among several', () => {
+      const props = mockConfigEditorProps({
+        serviceAccountRoutingEnabled: true,
+        serviceAccountMappings: [
+          { grafanaUser: 'a', serviceAccount: 'sa_a' },
+          { grafanaUser: 'b', serviceAccount: 'sa_b' },
+          { grafanaUser: 'c', serviceAccount: 'sa_c' },
+        ],
+      });
+      render(<ConfigEditor {...props} />);
+      fireEvent.click(
+        screen.getByRole('button', { name: `${Components.ConfigEditor.ServiceAccountMappings.removeLabel} 2` })
+      );
+      expect(lastJsonData(props).serviceAccountMappings).toEqual([
+        { grafanaUser: 'a', serviceAccount: 'sa_a' },
+        { grafanaUser: 'c', serviceAccount: 'sa_c' },
+      ]);
+    });
+
+    it('updates the correct row among several', () => {
+      const props = mockConfigEditorProps({
+        serviceAccountRoutingEnabled: true,
+        serviceAccountMappings: [
+          { grafanaUser: 'a', serviceAccount: 'sa_a' },
+          { grafanaUser: 'b', serviceAccount: 'sa_b' },
+        ],
+      });
+      render(<ConfigEditor {...props} />);
+      const saInputs = screen.getAllByPlaceholderText(
+        Components.ConfigEditor.ServiceAccountMappings.serviceAccountPlaceholder
+      );
+      fireEvent.change(saInputs[1], { target: { value: 'sa_b2' } });
+      expect(lastJsonData(props).serviceAccountMappings).toEqual([
+        { grafanaUser: 'a', serviceAccount: 'sa_a' },
+        { grafanaUser: 'b', serviceAccount: 'sa_b2' },
+      ]);
+    });
   });
 });

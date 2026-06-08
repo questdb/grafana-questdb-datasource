@@ -99,6 +99,26 @@ export const Components = {
       tooltip:
         'A lower limit for the auto-calculated interval used by $__sampleByInterval macro. Recommended to be set to write frequency, for example 1s if your data is written every second. Valid time identifiers are: ms, s, m, h, d',
     },
+    ServiceAccountRouting: {
+      label: 'Enable per-user service accounts',
+      tooltip:
+        'QuestDB Enterprise only. When enabled, each query runs ASSUME SERVICE ACCOUNT for the service account mapped to the requesting Grafana user, so the account\'s memory limit applies to that user\'s queries. The data source still authenticates with the credentials above.',
+    },
+    DefaultServiceAccount: {
+      label: 'Default service account',
+      placeholder: 'sa_default',
+      tooltip:
+        'Service account assumed for users without an explicit mapping and for backend-initiated queries (alerting, reporting). Leave empty to run unmapped users as the base login (no ASSUME).',
+    },
+    ServiceAccountMappings: {
+      label: 'User mappings',
+      tooltip:
+        'Maps a Grafana user login to a QuestDB service account. Point several users at the same service account to form a group. Matching is case-insensitive. Rows with a blank service account are ignored (the user falls back to the default).',
+      addLabel: 'Add mapping',
+      removeLabel: 'Remove service account mapping',
+      grafanaUserPlaceholder: 'Grafana user login',
+      serviceAccountPlaceholder: 'Service account',
+    },
   },
   QueryEditor: {
     CodeEditor: {

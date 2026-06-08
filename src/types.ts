@@ -14,6 +14,11 @@ export enum PostgresTLSMethods {
   fileContent = 'file-content',
 }
 
+export interface ServiceAccountMapping {
+  grafanaUser: string;
+  serviceAccount: string;
+}
+
 export interface QuestDBConfig extends DataSourceJsonData {
   username: string;
   server: string;
@@ -36,6 +41,11 @@ export interface QuestDBConfig extends DataSourceJsonData {
 
   tlsClientCertFile?: string;
   tlsClientKeyFile?: string;
+
+  // Per-user service-account routing (QuestDB Enterprise only).
+  serviceAccountRoutingEnabled?: boolean;
+  defaultServiceAccount?: string;
+  serviceAccountMappings?: ServiceAccountMapping[];
 }
 
 export interface QuestDBSecureConfig {

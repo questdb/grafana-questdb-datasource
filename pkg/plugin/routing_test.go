@@ -1,0 +1,400 @@
+package plugin
+
+import (
+	"context"
+	"database/sql/driver"
+	"encoding/json"
+	"errors"
+	"testing"
+
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestLoadServiceAccountSettings(t *testing.T) {
+	t.Run("parses routing fields", func(t *testing.T) {
+		cfg := backend.DataSourceInstanceSettings{
+			JSONData: []byte(`{ "server": "h", "port": 8812, "username": "u",
+				"serviceAccountRoutingEnabled": true, "defaultServiceAccount": "sa_default",
+				"serviceAccountMappings": [
+					{ "grafanaUser": "john", "serviceAccount": "sa_analysts" },
+					{ "grafanaUser": "jane", "serviceAccount": "sa_analysts" }
+				] }`),
+			DecryptedSecureJSONData: map[string]string{"password": "p"},
+		}
+		s, err := LoadSettings(cfg)
+		require.NoError(t, err)
+		assert.True(t, s.ServiceAccountRoutingEnabled)
+		assert.Equal(t, "sa_default", s.DefaultServiceAccount)
+		assert.Equal(t, []ServiceAccountMapping{
+			{GrafanaUser: "john", ServiceAccount: "sa_analysts"},
+			{GrafanaUser: "jane", ServiceAccount: "sa_analysts"},
+		}, s.ServiceAccountMappings)
+	})
+
+	t.Run("defaults to disabled when fields absent", func(t *testing.T) {
+		cfg := backend.DataSourceInstanceSettings{
+			JSONData:                []byte(`{ "server": "h", "port": 8812, "username": "u" }`),
+			DecryptedSecureJSONData: map[string]string{"password": "p"},
+		}
+		s, err := LoadSettings(cfg)
+		require.NoError(t, err)
+		assert.False(t, s.ServiceAccountRoutingEnabled)
+		assert.Equal(t, "", s.DefaultServiceAccount)
+		assert.Nil(t, s.ServiceAccountMappings)
+	})
+
+	t.Run("LoadServiceAccountSettings parses without requiring credentials", func(t *testing.T) {
+		// No server/port/username/password — routing config must still parse.
+		cfg := backend.DataSourceInstanceSettings{
+			JSONData: []byte(`{ "serviceAccountRoutingEnabled": true, "defaultServiceAccount": "sa_default",
+				"serviceAccountMappings": [{ "grafanaUser": "john", "serviceAccount": "sa_analysts" }] }`),
+		}
+		s := LoadServiceAccountSettings(cfg)
+		assert.True(t, s.ServiceAccountRoutingEnabled)
+		assert.Equal(t, "sa_default", s.DefaultServiceAccount)
+		assert.Equal(t, []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "sa_analysts"}}, s.ServiceAccountMappings)
+	})
+}
+
+func TestResolveServiceAccount(t *testing.T) {
+	settings := Settings{
+		DefaultServiceAccount: "sa_default",
+		ServiceAccountMappings: []ServiceAccountMapping{
+			{GrafanaUser: "john", ServiceAccount: "sa_analysts"},
+			{GrafanaUser: "ceo", ServiceAccount: "sa_execs"},
+		},
+	}
+
+	tests := []struct {
+		name string
+		user *backend.User
+		want string
+	}{
+		{name: "mapped user", user: &backend.User{Login: "john"}, want: "sa_analysts"},
+		{name: "case-insensitive match", user: &backend.User{Login: "JoHn"}, want: "sa_analysts"},
+		{name: "another mapped user", user: &backend.User{Login: "ceo"}, want: "sa_execs"},
+		{name: "unmapped user falls back to default", user: &backend.User{Login: "nobody"}, want: "sa_default"},
+		{name: "nil user falls back to default", user: nil, want: "sa_default"},
+		{name: "empty login falls back to default", user: &backend.User{Login: ""}, want: "sa_default"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, settings.resolveServiceAccount(tt.user))
+		})
+	}
+
+	t.Run("empty default and no match returns empty", func(t *testing.T) {
+		s := Settings{ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "sa_analysts"}}}
+		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "nobody"}))
+		assert.Equal(t, "", s.resolveServiceAccount(nil))
+	})
+
+	t.Run("blank mapping service account falls through to the default", func(t *testing.T) {
+		s := Settings{
+			DefaultServiceAccount:  "sa_default",
+			ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "   "}},
+		}
+		// Without a default, a blank mapping must not assume the base login implicitly.
+		assert.Equal(t, "sa_default", s.resolveServiceAccount(&backend.User{Login: "john"}))
+		s.DefaultServiceAccount = ""
+		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "john"}))
+	})
+
+	t.Run("a later non-blank row for the same user still matches", func(t *testing.T) {
+		s := Settings{ServiceAccountMappings: []ServiceAccountMapping{
+			{GrafanaUser: "john", ServiceAccount: ""},
+			{GrafanaUser: "john", ServiceAccount: "sa_analysts"},
+		}}
+		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "john"}))
+	})
+
+	t.Run("whitespace is trimmed from resolved names", func(t *testing.T) {
+		s := Settings{
+			DefaultServiceAccount:  "  sa_default  ",
+			ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "  sa_analysts  "}},
+		}
+		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "john"}))
+		assert.Equal(t, "sa_default", s.resolveServiceAccount(&backend.User{Login: "nobody"}))
+	})
+
+	t.Run("whitespace-only default resolves to empty", func(t *testing.T) {
+		s := Settings{DefaultServiceAccount: "   "}
+		assert.Equal(t, "", s.resolveServiceAccount(nil))
+		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "nobody"}))
+	})
+}
+
+func TestBuildAssumeStatement(t *testing.T) {
+	t.Run("valid names", func(t *testing.T) {
+		valid := map[string]string{
+			"sa_analysts": `ASSUME SERVICE ACCOUNT "sa_analysts"`,
+			"sa-execs":    `ASSUME SERVICE ACCOUNT "sa-execs"`,
+			"team.a_1":    `ASSUME SERVICE ACCOUNT "team.a_1"`,
+		}
+		for name, want := range valid {
+			got, err := buildAssumeStatement(name)
+			require.NoError(t, err, name)
+			assert.Equal(t, want, got)
+		}
+	})
+
+	t.Run("empty name is a no-op", func(t *testing.T) {
+		got, err := buildAssumeStatement("")
+		require.NoError(t, err)
+		assert.Equal(t, "", got)
+	})
+
+	t.Run("rejects injection / malformed names", func(t *testing.T) {
+		bad := []string{
+			`sa"; DROP TABLE x;--`,
+			`sa name`,
+			`sa;`,
+			`sa"a`,
+			`sa'a`,
+			"sa\na",
+			`"`,
+			`sa)`,
+		}
+		for _, name := range bad {
+			_, err := buildAssumeStatement(name)
+			assert.Error(t, err, name)
+		}
+	})
+}
+
+// --- fakes for the connector wrapper ---
+
+type fakeConnector struct {
+	conn       driver.Conn
+	connectErr error
+}
+
+func (c *fakeConnector) Connect(_ context.Context) (driver.Conn, error) {
+	if c.connectErr != nil {
+		return nil, c.connectErr
+	}
+	return c.conn, nil
+}
+func (c *fakeConnector) Driver() driver.Driver { return nil }
+
+// execerConn implements driver.Conn and driver.ExecerContext, recording the statement.
+type execerConn struct {
+	lastQuery string
+	closed    bool
+	execErr   error
+}
+
+func (c *execerConn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("not implemented") }
+func (c *execerConn) Close() error                        { c.closed = true; return nil }
+func (c *execerConn) Begin() (driver.Tx, error)           { return nil, errors.New("not implemented") }
+func (c *execerConn) ExecContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Result, error) {
+	c.lastQuery = query
+	if c.execErr != nil {
+		return nil, c.execErr
+	}
+	return driver.RowsAffected(0), nil
+}
+
+// plainConn implements only driver.Conn (no ExecerContext).
+type plainConn struct{ closed bool }
+
+func (c *plainConn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("not implemented") }
+func (c *plainConn) Close() error                        { c.closed = true; return nil }
+func (c *plainConn) Begin() (driver.Tx, error)           { return nil, errors.New("not implemented") }
+
+func TestAssumeServiceAccountConnector(t *testing.T) {
+	const stmt = `ASSUME SERVICE ACCOUNT "sa_a"`
+
+	t.Run("runs ASSUME once and returns the conn", func(t *testing.T) {
+		fc := &execerConn{}
+		asc := &assumeServiceAccountConnector{base: &fakeConnector{conn: fc}, stmt: stmt}
+		got, err := asc.Connect(context.Background())
+		require.NoError(t, err)
+		assert.Same(t, fc, got)
+		assert.Equal(t, stmt, fc.lastQuery)
+		assert.False(t, fc.closed)
+	})
+
+	t.Run("closes conn and propagates exec error", func(t *testing.T) {
+		fc := &execerConn{execErr: errors.New("boom")}
+		asc := &assumeServiceAccountConnector{base: &fakeConnector{conn: fc}, stmt: stmt}
+		_, err := asc.Connect(context.Background())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to assume service account")
+		assert.True(t, fc.closed)
+	})
+
+	t.Run("errors when conn lacks ExecContext", func(t *testing.T) {
+		pc := &plainConn{}
+		asc := &assumeServiceAccountConnector{base: &fakeConnector{conn: pc}, stmt: stmt}
+		_, err := asc.Connect(context.Background())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "does not support ExecContext")
+		assert.True(t, pc.closed)
+	})
+
+	t.Run("propagates base connect error", func(t *testing.T) {
+		asc := &assumeServiceAccountConnector{base: &fakeConnector{connectErr: errors.New("dial fail")}, stmt: stmt}
+		_, err := asc.Connect(context.Background())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "dial fail")
+	})
+}
+
+func mutateDSI(extraJSON string) *backend.DataSourceInstanceSettings {
+	jsonData := `{ "server": "h", "port": 8812, "username": "u", "tlsMode": "disable"`
+	if extraJSON != "" {
+		jsonData += ", " + extraJSON
+	}
+	jsonData += " }"
+	// Deliberately no DecryptedSecureJSONData: routing resolution must not require credentials.
+	return &backend.DataSourceInstanceSettings{
+		JSONData: []byte(jsonData),
+	}
+}
+
+func makeQueries() []backend.DataQuery {
+	return []backend.DataQuery{
+		{RefID: "A", JSON: []byte(`{"rawSql":"select 1","format":1}`)},
+		{RefID: "B", JSON: []byte(`{"rawSql":"select 2","format":0}`)},
+	}
+}
+
+func TestMutateQueryData(t *testing.T) {
+	h := &QuestDB{}
+	ctx := context.Background()
+
+	routingEnabled := `"serviceAccountRoutingEnabled": true, "defaultServiceAccount": "sa_default",
+		"serviceAccountMappings": [{ "grafanaUser": "john", "serviceAccount": "sa_analysts" }]`
+
+	t.Run("nil datasource settings is a no-op", func(t *testing.T) {
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{User: &backend.User{Login: "john"}},
+			Queries:       makeQueries(),
+		}
+		_, out := h.MutateQueryData(ctx, req)
+		assert.JSONEq(t, `{"rawSql":"select 1","format":1}`, string(out.Queries[0].JSON))
+	})
+
+	t.Run("routing disabled leaves queries unchanged", func(t *testing.T) {
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: mutateDSI(""), User: &backend.User{Login: "john"}},
+			Queries:       makeQueries(),
+		}
+		_, out := h.MutateQueryData(ctx, req)
+		assert.JSONEq(t, `{"rawSql":"select 1","format":1}`, string(out.Queries[0].JSON))
+		assert.JSONEq(t, `{"rawSql":"select 2","format":0}`, string(out.Queries[1].JSON))
+	})
+
+	t.Run("mapped user stamps connectionArgs, preserving fields", func(t *testing.T) {
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: mutateDSI(routingEnabled), User: &backend.User{Login: "john"}},
+			Queries:       makeQueries(),
+		}
+		_, out := h.MutateQueryData(ctx, req)
+		for i, raw := range []string{`"select 1"`, `"select 2"`} {
+			var m map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(out.Queries[i].JSON, &m))
+			assert.JSONEq(t, `{"serviceAccount":"sa_analysts"}`, string(m["connectionArgs"]))
+			assert.JSONEq(t, raw, string(m["rawSql"]))
+		}
+	})
+
+	t.Run("nil user resolves to default service account", func(t *testing.T) {
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: mutateDSI(routingEnabled), User: nil},
+			Queries:       makeQueries(),
+		}
+		_, out := h.MutateQueryData(ctx, req)
+		var m map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(out.Queries[0].JSON, &m))
+		assert.JSONEq(t, `{"serviceAccount":"sa_default"}`, string(m["connectionArgs"]))
+	})
+
+	t.Run("unmapped user with no default leaves queries unchanged", func(t *testing.T) {
+		noDefault := `"serviceAccountRoutingEnabled": true,
+			"serviceAccountMappings": [{ "grafanaUser": "john", "serviceAccount": "sa_analysts" }]`
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: mutateDSI(noDefault), User: &backend.User{Login: "nobody"}},
+			Queries:       makeQueries(),
+		}
+		_, out := h.MutateQueryData(ctx, req)
+		assert.JSONEq(t, `{"rawSql":"select 1","format":1}`, string(out.Queries[0].JSON))
+	})
+
+	t.Run("blank mapping falls through to the default service account", func(t *testing.T) {
+		blank := `"serviceAccountRoutingEnabled": true, "defaultServiceAccount": "sa_default",
+			"serviceAccountMappings": [{ "grafanaUser": "john", "serviceAccount": "" }]`
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: mutateDSI(blank), User: &backend.User{Login: "john"}},
+			Queries:       makeQueries(),
+		}
+		_, out := h.MutateQueryData(ctx, req)
+		var m map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(out.Queries[0].JSON, &m))
+		assert.JSONEq(t, `{"serviceAccount":"sa_default"}`, string(m["connectionArgs"]))
+	})
+}
+
+func TestWithConnectionArgs(t *testing.T) {
+	connArgs := json.RawMessage(`{"serviceAccount":"sa_a"}`)
+
+	t.Run("adds connectionArgs preserving all other fields", func(t *testing.T) {
+		in := json.RawMessage(`{"rawSql":"select 1","format":1,"selectedFormat":2,"meta":{"timezone":"UTC"}}`)
+		var m map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(withConnectionArgs(in, connArgs), &m))
+		assert.JSONEq(t, `{"serviceAccount":"sa_a"}`, string(m["connectionArgs"]))
+		assert.JSONEq(t, `"select 1"`, string(m["rawSql"]))
+		assert.JSONEq(t, `1`, string(m["format"]))
+		assert.JSONEq(t, `2`, string(m["selectedFormat"]))
+		assert.JSONEq(t, `{"timezone":"UTC"}`, string(m["meta"]))
+	})
+
+	t.Run("overwrites an existing connectionArgs", func(t *testing.T) {
+		in := json.RawMessage(`{"rawSql":"select 1","connectionArgs":{"serviceAccount":"old"}}`)
+		var m map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(withConnectionArgs(in, connArgs), &m))
+		assert.JSONEq(t, `{"serviceAccount":"sa_a"}`, string(m["connectionArgs"]))
+	})
+
+	t.Run("returns input unchanged on malformed JSON", func(t *testing.T) {
+		in := json.RawMessage(`not json`)
+		assert.Equal(t, string(in), string(withConnectionArgs(in, connArgs)))
+	})
+
+	t.Run("returns input unchanged on non-object JSON", func(t *testing.T) {
+		// A JSON array cannot be unmarshalled into map[string]json.RawMessage.
+		in := json.RawMessage(`["a","b"]`)
+		assert.Equal(t, string(in), string(withConnectionArgs(in, connArgs)))
+	})
+}
+
+func TestConnectServiceAccountWrapping(t *testing.T) {
+	// These exercise the routing branch of Connect without a live database: an invalid
+	// name errors before sql.OpenDB, and OpenDB itself is lazy (no connection until used).
+	baseJSON := `{"server":"h","port":8812,"username":"u","tlsMode":"disable","serviceAccountRoutingEnabled":true}`
+	cfg := backend.DataSourceInstanceSettings{
+		JSONData:                []byte(baseJSON),
+		DecryptedSecureJSONData: map[string]string{"password": "p"},
+	}
+
+	t.Run("invalid service account name errors at connect", func(t *testing.T) {
+		msg, err := json.Marshal(connectionArgs{ServiceAccount: "bad name!"})
+		require.NoError(t, err)
+		db, err := (&QuestDB{}).Connect(context.Background(), cfg, msg)
+		require.Error(t, err)
+		assert.Nil(t, db)
+		assert.Contains(t, err.Error(), "invalid service account name")
+	})
+
+	t.Run("valid service account name wires the pool without error", func(t *testing.T) {
+		msg, err := json.Marshal(connectionArgs{ServiceAccount: "sa_analysts"})
+		require.NoError(t, err)
+		db, err := (&QuestDB{}).Connect(context.Background(), cfg, msg)
+		require.NoError(t, err)
+		require.NotNil(t, db)
+		_ = db.Close()
+	})
+}

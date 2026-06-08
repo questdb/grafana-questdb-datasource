@@ -3,6 +3,7 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -33,11 +34,23 @@ type Settings struct {
 
 	TlsClientCertFile string `json:"tlsClientCertFile"`
 	TlsClientKeyFile  string `json:"tlsClientKeyFile"`
+
+	// Per-user service-account routing (optional; QuestDB Enterprise only).
+	ServiceAccountRoutingEnabled bool                    `json:"serviceAccountRoutingEnabled,omitempty"`
+	DefaultServiceAccount        string                  `json:"defaultServiceAccount,omitempty"`
+	ServiceAccountMappings       []ServiceAccountMapping `json:"serviceAccountMappings,omitempty"`
 }
 
 type CustomSetting struct {
 	Setting string `json:"setting"`
 	Value   string `json:"value"`
+}
+
+// ServiceAccountMapping maps a Grafana user login to a QuestDB service account.
+// Several users may point at the same service account to form a "group".
+type ServiceAccountMapping struct {
+	GrafanaUser    string `json:"grafanaUser"`
+	ServiceAccount string `json:"serviceAccount"`
 }
 
 func (settings *Settings) isValid() (err error) {
@@ -178,5 +191,77 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings,
 		}
 	}
 
+	// Service-account routing fields are simple native JSON types (bool/string/array),
+	// so a typed unmarshal is cleaner than the map extraction used above.
+	applyServiceAccountSettings(&settings, config.JSONData)
+
 	return settings, settings.isValid()
+}
+
+// applyServiceAccountSettings parses the (non-secret) service-account routing fields from
+// jsonData onto settings. jsonData is assumed to be valid JSON; a parse error simply
+// leaves the routing fields at their zero values (routing disabled).
+func applyServiceAccountSettings(settings *Settings, jsonData []byte) {
+	var sa struct {
+		ServiceAccountRoutingEnabled bool                    `json:"serviceAccountRoutingEnabled"`
+		DefaultServiceAccount        string                  `json:"defaultServiceAccount"`
+		ServiceAccountMappings       []ServiceAccountMapping `json:"serviceAccountMappings"`
+	}
+	_ = json.Unmarshal(jsonData, &sa)
+	settings.ServiceAccountRoutingEnabled = sa.ServiceAccountRoutingEnabled
+	settings.DefaultServiceAccount = sa.DefaultServiceAccount
+	settings.ServiceAccountMappings = sa.ServiceAccountMappings
+}
+
+// LoadServiceAccountSettings parses only the service-account routing fields. Unlike
+// LoadSettings it does not require valid credentials, so it is safe to call on the query
+// path (MutateQueryData): routing config is non-secret jsonData and is resolved before a
+// connection is established, independent of whether secrets are present in the request.
+func LoadServiceAccountSettings(config backend.DataSourceInstanceSettings) Settings {
+	var settings Settings
+	applyServiceAccountSettings(&settings, config.JSONData)
+	return settings
+}
+
+// resolveServiceAccount maps the requesting Grafana user to a QuestDB service account.
+// It returns "" when no ASSUME should run (the query then runs as the base login):
+// either there is no match and no configured default, or routing is effectively a no-op.
+// A nil user (backend-initiated requests such as alerting/reporting) resolves to the
+// default service account.
+//
+// Mappings with a blank service account are skipped: a half-filled config row must not
+// silently make a mapped user bypass the cap by dropping to the base login — such a user
+// falls through to the default instead. Returned names are whitespace-trimmed.
+func (settings *Settings) resolveServiceAccount(user *backend.User) string {
+	if user != nil && user.Login != "" {
+		for _, m := range settings.ServiceAccountMappings {
+			if strings.TrimSpace(m.ServiceAccount) == "" {
+				continue
+			}
+			if strings.EqualFold(m.GrafanaUser, user.Login) {
+				return strings.TrimSpace(m.ServiceAccount)
+			}
+		}
+	}
+	return strings.TrimSpace(settings.DefaultServiceAccount) // "" when unset/blank
+}
+
+// serviceAccountNamePattern guards against SQL injection / malformed names from config.
+// It forbids whitespace, quotes and ';', so the name can be safely embedded in the
+// ASSUME statement below.
+var serviceAccountNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.\-]+$`)
+
+// buildAssumeStatement returns the statement run on each new connection for the given
+// service account. It returns ("", nil) when sa is empty, and an error when the name
+// fails validation. There is no trailing ';' — it is executed as a single statement
+// via ExecContext.
+func buildAssumeStatement(sa string) (string, error) {
+	if sa == "" {
+		return "", nil
+	}
+	if !serviceAccountNamePattern.MatchString(sa) {
+		return "", fmt.Errorf("invalid service account name %q", sa)
+	}
+	// The pattern forbids embedded double quotes, so the quoted identifier is injection-safe.
+	return `ASSUME SERVICE ACCOUNT "` + sa + `"`, nil
 }

@@ -88,6 +88,65 @@ datasources:
 If you are using QuestDB Enterprise and have enabled TLS, you would need to change
 `tlsMode: require` in the example above.
 
+### Per-user service accounts (memory limits)
+
+> Requires QuestDB **Enterprise**. With the feature disabled (the default) the plugin
+> behaves exactly as before and works against Open Source.
+
+A single, shared data source can apply **per-Grafana-user memory limits** to the queries
+each user runs. The data source still authenticates with one common login; when a query
+runs, the plugin makes the QuestDB session assume a service account specific to the
+requesting Grafana user (or shared by a group of users):
+
+```sql
+ASSUME SERVICE ACCOUNT <serviceAccount>;
+```
+
+Because an Enterprise service account can carry a memory limit, and a user assuming a
+service account picks up that account's limit, this transparently caps the memory of that
+user's queries. Grouping is expressed on the QuestDB side: map several Grafana users to
+the same service account, and/or set the limit on a QuestDB group of service accounts.
+
+The Grafana user is taken from the backend-verified identity (`PluginContext.User.Login`),
+so it cannot be tampered with from the query payload. Matching is case-insensitive.
+Unmapped users and backend-initiated queries (alerting, reporting) use the configured
+default service account; if no default is set, they run as the base login. A mapping row
+with a blank service account is ignored — that user falls back to the default rather than
+running uncapped.
+
+**QuestDB setup** (example: analysts capped at 2G, with `baseuser` as the data source login):
+
+```sql
+CREATE SERVICE ACCOUNT sa_analysts;
+GRANT SELECT ON ALL TABLES TO sa_analysts;
+ALTER SERVICE ACCOUNT sa_analysts SET MEMORY LIMIT 2G;
+GRANT ASSUME SERVICE ACCOUNT sa_analysts TO baseuser;
+
+-- defense in depth: also bound the base login
+ALTER USER baseuser SET MEMORY LIMIT 256M;
+```
+
+**Grafana setup**: in the data source config, open **Per-user service accounts**, enable
+the toggle, set a **Default service account**, and add **User mappings** (Grafana login →
+service account). The same can be provisioned via `jsonData`:
+
+```yaml
+    jsonData:
+      serviceAccountRoutingEnabled: true
+      defaultServiceAccount: sa_default
+      serviceAccountMappings:
+        - grafanaUser: johndoe
+          serviceAccount: sa_analysts
+        - grafanaUser: ceo
+          serviceAccount: sa_execs
+```
+
+This is resource governance, not a hard security boundary: the SQL editor lets a user run
+arbitrary SQL, including `EXIT SERVICE ACCOUNT;`, so set a memory limit on the base login
+too and grant it only the service accounts used here. Note that one connection pool is
+created per active service account (each using the configured connection limits), so favor
+groups over a unique account per user.
+
 ## Building queries
 
 The query editor allows you to query QuestDB to return time series or

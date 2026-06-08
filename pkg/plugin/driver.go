@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -97,7 +98,26 @@ func (h *QuestDB) Connect(ctx context.Context, config backend.DataSourceInstance
 		}
 	}
 
-	db := sql.OpenDB(connector)
+	// When service-account routing is enabled, sqlds creates one pool per distinct
+	// connectionArgs. The message carries the service account stamped by MutateQueryData;
+	// we wrap the connector so each new physical connection assumes that account exactly
+	// once. The account's memory limit then applies to every query on this pool.
+	var conn driver.Connector = connector
+	if settings.ServiceAccountRoutingEnabled && len(message) > 0 {
+		var args connectionArgs
+		if err := json.Unmarshal(message, &args); err == nil && args.ServiceAccount != "" {
+			stmt, err := buildAssumeStatement(args.ServiceAccount)
+			if err != nil {
+				log.DefaultLogger.Error("QuestDB invalid service account name", "error", err)
+				return nil, err
+			}
+			conn = &assumeServiceAccountConnector{base: connector, stmt: stmt}
+			log.DefaultLogger.Debug("QuestDB service account routing enabled for pool",
+				"serviceAccount", args.ServiceAccount)
+		}
+	}
+
+	db := sql.OpenDB(conn)
 	db.SetMaxOpenConns(int(settings.MaxOpenConnections))
 	db.SetMaxIdleConns(int(settings.MaxIdleConnections))
 	db.SetConnMaxLifetime(time.Duration(settings.MaxConnectionLifetime) * time.Second)
@@ -248,10 +268,93 @@ func (h *QuestDB) MutateQuery(ctx context.Context, req backend.DataQuery) (conte
 	return ctx, req
 }
 
+// connectionArgs is the per-query routing payload carried in the query's connectionArgs
+// field. sqlds keys a separate connection pool per distinct connectionArgs value, which
+// is how we get one pool (and thus one ASSUME) per service account.
+type connectionArgs struct {
+	ServiceAccount string `json:"serviceAccount"`
+}
+
+// MutateQueryData resolves the requesting Grafana user to a service account (when
+// routing is enabled) and stamps it into every query's connectionArgs, so sqlds routes
+// the queries to the matching per-service-account connection pool. When routing is off,
+// or the user resolves to no service account, the request is returned unchanged and the
+// queries run on the default (base login) pool.
+func (h *QuestDB) MutateQueryData(ctx context.Context, req *backend.QueryDataRequest) (context.Context, *backend.QueryDataRequest) {
+	dsi := req.PluginContext.DataSourceInstanceSettings
+	if dsi == nil {
+		return ctx, req
+	}
+	// Resolve routing from non-secret jsonData only; this must not depend on credentials
+	// being present in the request's PluginContext.
+	settings := LoadServiceAccountSettings(*dsi)
+	if !settings.ServiceAccountRoutingEnabled {
+		return ctx, req
+	}
+	sa := settings.resolveServiceAccount(req.PluginContext.User)
+	if sa == "" {
+		return ctx, req // base pool, no ASSUME
+	}
+	connArgs, err := json.Marshal(connectionArgs{ServiceAccount: sa})
+	if err != nil {
+		log.DefaultLogger.Error("QuestDB failed to marshal connectionArgs", "error", err)
+		return ctx, req
+	}
+	for i := range req.Queries {
+		req.Queries[i].JSON = withConnectionArgs(req.Queries[i].JSON, connArgs)
+	}
+	return ctx, req
+}
+
+// withConnectionArgs merges "connectionArgs": <connArgs> into a query JSON object,
+// preserving existing fields (rawSql, format, ...). On malformed JSON it returns the
+// input unchanged.
+func withConnectionArgs(queryJSON, connArgs json.RawMessage) json.RawMessage {
+	m := map[string]json.RawMessage{}
+	if err := json.Unmarshal(queryJSON, &m); err != nil {
+		return queryJSON
+	}
+	m["connectionArgs"] = connArgs
+	out, err := json.Marshal(m)
+	if err != nil {
+		return queryJSON
+	}
+	return out
+}
+
 // MutateResponse For any view other than traces we convert FieldTypeNullableJSON to string
 func (h *QuestDB) MutateResponse(ctx context.Context, res data.Frames) (data.Frames, error) {
 	return res, nil
 }
+
+// assumeServiceAccountConnector wraps a driver.Connector so that every new physical
+// connection runs `ASSUME SERVICE ACCOUNT <sa>` exactly once before it is used. Because
+// sqlds keeps one pool per service account, the ASSUME runs per connection (not per
+// query) and never leaks between Grafana users; the account's memory limit then applies
+// to every query on the pool.
+type assumeServiceAccountConnector struct {
+	base driver.Connector
+	stmt string
+}
+
+func (c *assumeServiceAccountConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.base.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	execer, ok := conn.(driver.ExecerContext)
+	if !ok {
+		_ = conn.Close()
+		return nil, fmt.Errorf("connection does not support ExecContext; cannot ASSUME SERVICE ACCOUNT")
+	}
+	if _, err := execer.ExecContext(ctx, c.stmt, nil); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("failed to assume service account: %w", err)
+	}
+	return conn, nil
+}
+
+func (c *assumeServiceAccountConnector) Driver() driver.Driver { return c.base.Driver() }
 
 // postgresProxyDialer implements the postgres dialer using a proxy dialer, as their functions differ slightly
 type postgresProxyDialer struct {

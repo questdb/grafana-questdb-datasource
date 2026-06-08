@@ -5,10 +5,10 @@ import {
   onUpdateDatasourceSecureJsonDataOption,
   SelectableValue,
 } from '@grafana/data';
-import { Field, Input, SecretInput, Select, Switch } from '@grafana/ui';
+import { Button, Field, IconButton, Input, SecretInput, Select, Switch } from '@grafana/ui';
 import { CertificationKey } from '../components/ui/CertificationKey';
 import { Components } from './../selectors';
-import { PostgresTLSModes, QuestDBConfig, QuestDBSecureConfig } from './../types';
+import { PostgresTLSModes, QuestDBConfig, QuestDBSecureConfig, ServiceAccountMapping } from './../types';
 import { gte } from 'semver';
 import { ConfigSection, DataSourceDescription } from '@grafana/experimental';
 import { config } from '@grafana/runtime';
@@ -41,7 +41,10 @@ export const ConfigEditor: React.FC<Props> = (props) => {
       },
     });
   };
-  const onSwitchToggle = (key: keyof Pick<QuestDBConfig, 'validate' | 'enableSecureSocksProxy'>, value: boolean) => {
+  const onSwitchToggle = (
+    key: keyof Pick<QuestDBConfig, 'validate' | 'enableSecureSocksProxy' | 'serviceAccountRoutingEnabled'>,
+    value: boolean
+  ) => {
     onOptionsChange({
       ...options,
       jsonData: {
@@ -50,6 +53,21 @@ export const ConfigEditor: React.FC<Props> = (props) => {
       },
     });
   };
+
+  const mappings = jsonData.serviceAccountMappings ?? [];
+  const onMappingsChange = (next: ServiceAccountMapping[]) => {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        serviceAccountMappings: next,
+      },
+    });
+  };
+  const onAddMapping = () => onMappingsChange([...mappings, { grafanaUser: '', serviceAccount: '' }]);
+  const onRemoveMapping = (index: number) => onMappingsChange(mappings.filter((_, i) => i !== index));
+  const onUpdateMapping = (index: number, key: keyof ServiceAccountMapping, value: string) =>
+    onMappingsChange(mappings.map((m, i) => (i === index ? { ...m, [key]: value } : m)));
 
   const onCertificateChangeFactory = (key: keyof Omit<QuestDBSecureConfig, 'password'>, value: string) => {
     onOptionsChange({
@@ -342,6 +360,75 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             </>
           </>
         ) : null}
+      </ConfigSection>
+
+      <Divider />
+      <ConfigSection title="Per-user service accounts">
+        <Field
+          label={Components.ConfigEditor.ServiceAccountRouting.label}
+          description={Components.ConfigEditor.ServiceAccountRouting.tooltip}
+        >
+          <Switch
+            className="gf-form"
+            aria-label={Components.ConfigEditor.ServiceAccountRouting.label}
+            value={jsonData.serviceAccountRoutingEnabled || false}
+            onChange={(e) => onSwitchToggle('serviceAccountRoutingEnabled', e.currentTarget.checked)}
+          />
+        </Field>
+
+        {jsonData.serviceAccountRoutingEnabled && (
+          <>
+            <Field
+              label={Components.ConfigEditor.DefaultServiceAccount.label}
+              description={Components.ConfigEditor.DefaultServiceAccount.tooltip}
+            >
+              <Input
+                name="defaultServiceAccount"
+                width={40}
+                value={jsonData.defaultServiceAccount || ''}
+                onChange={onUpdateDatasourceJsonDataOption(props, 'defaultServiceAccount')}
+                label={Components.ConfigEditor.DefaultServiceAccount.label}
+                aria-label={Components.ConfigEditor.DefaultServiceAccount.label}
+                placeholder={Components.ConfigEditor.DefaultServiceAccount.placeholder}
+              />
+            </Field>
+
+            <Field
+              label={Components.ConfigEditor.ServiceAccountMappings.label}
+              description={Components.ConfigEditor.ServiceAccountMappings.tooltip}
+            >
+              <div>
+                {mappings.map((m, i) => (
+                  <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+                    <Input
+                      width={30}
+                      value={m.grafanaUser}
+                      placeholder={Components.ConfigEditor.ServiceAccountMappings.grafanaUserPlaceholder}
+                      aria-label={`${Components.ConfigEditor.ServiceAccountMappings.grafanaUserPlaceholder} ${i + 1}`}
+                      onChange={(e) => onUpdateMapping(i, 'grafanaUser', e.currentTarget.value)}
+                    />
+                    <Input
+                      width={30}
+                      value={m.serviceAccount}
+                      placeholder={Components.ConfigEditor.ServiceAccountMappings.serviceAccountPlaceholder}
+                      aria-label={`${Components.ConfigEditor.ServiceAccountMappings.serviceAccountPlaceholder} ${i + 1}`}
+                      onChange={(e) => onUpdateMapping(i, 'serviceAccount', e.currentTarget.value)}
+                    />
+                    <IconButton
+                      name="trash-alt"
+                      aria-label={`${Components.ConfigEditor.ServiceAccountMappings.removeLabel} ${i + 1}`}
+                      tooltip={`${Components.ConfigEditor.ServiceAccountMappings.removeLabel} ${i + 1}`}
+                      onClick={() => onRemoveMapping(i)}
+                    />
+                  </div>
+                ))}
+                <Button variant="secondary" icon="plus" onClick={onAddMapping}>
+                  {Components.ConfigEditor.ServiceAccountMappings.addLabel}
+                </Button>
+              </div>
+            </Field>
+          </>
+        )}
       </ConfigSection>
       <Divider />
     </>

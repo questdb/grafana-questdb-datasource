@@ -16,6 +16,15 @@ and this project adheres to
 - `Fixed` for any bug fixes.
 - `Security` in case of vulnerabilities.
 
+## Unreleased
+
+## Added
+
+- Per-user QuestDB service-account routing: optionally assume a per-user/per-group service
+  account on each query so QuestDB Enterprise memory limits apply per Grafana user. Disabled
+  by default; behavior is unchanged when off. See the "Per-user service accounts" section in
+  the README.
+
 ## 0.1.4
 
 ## Changed
