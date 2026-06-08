@@ -104,8 +104,10 @@ ASSUME SERVICE ACCOUNT <serviceAccount>;
 
 Because an Enterprise service account can carry a memory limit, and a user assuming a
 service account picks up that account's limit, this transparently caps the memory of that
-user's queries. Grouping is expressed on the QuestDB side: map several Grafana users to
-the same service account, and/or set the limit on a QuestDB group of service accounts.
+user's queries. Users can be grouped two ways: map several Grafana users — or whole
+**OIDC/Okta groups** (see [Per-group routing](#per-group-routing-via-oidc-groups-okta)
+below) — to the same service account, and/or set the limit on a QuestDB group of service
+accounts.
 
 The Grafana user is taken from the backend-verified identity (`PluginContext.User.Login`),
 so it cannot be tampered with from the query payload. Matching is case-insensitive.
