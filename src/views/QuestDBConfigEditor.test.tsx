@@ -215,5 +215,64 @@ describe('ConfigEditor', () => {
         { grafanaUser: 'b', serviceAccount: 'sa_b2' },
       ]);
     });
+
+    it('shows group mappings and groups claim when enabled', () => {
+      render(
+        <ConfigEditor
+          {...mockConfigEditorProps({
+            serviceAccountRoutingEnabled: true,
+            groupsClaim: 'myclaim',
+            serviceAccountGroupMappings: [{ group: 'Analysts', serviceAccount: 'sa_grp' }],
+          })}
+        />
+      );
+      expect(
+        screen.getByPlaceholderText(Components.ConfigEditor.ServiceAccountGroupMappings.groupPlaceholder)
+      ).toBeInTheDocument();
+      expect(screen.getByDisplayValue('Analysts')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('sa_grp')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('myclaim')).toBeInTheDocument();
+    });
+
+    it('adds a group mapping row', () => {
+      const props = mockConfigEditorProps({ serviceAccountRoutingEnabled: true });
+      render(<ConfigEditor {...props} />);
+      fireEvent.click(screen.getByText(Components.ConfigEditor.ServiceAccountGroupMappings.addLabel));
+      expect(lastJsonData(props).serviceAccountGroupMappings).toEqual([{ group: '', serviceAccount: '' }]);
+    });
+
+    it('updates a group mapping field', () => {
+      const props = mockConfigEditorProps({
+        serviceAccountRoutingEnabled: true,
+        serviceAccountGroupMappings: [{ group: '', serviceAccount: '' }],
+      });
+      render(<ConfigEditor {...props} />);
+      fireEvent.change(
+        screen.getByPlaceholderText(Components.ConfigEditor.ServiceAccountGroupMappings.groupPlaceholder),
+        { target: { value: 'Engineering' } }
+      );
+      expect(lastJsonData(props).serviceAccountGroupMappings).toEqual([{ group: 'Engineering', serviceAccount: '' }]);
+    });
+
+    it('removes a group mapping row', () => {
+      const props = mockConfigEditorProps({
+        serviceAccountRoutingEnabled: true,
+        serviceAccountGroupMappings: [{ group: 'Analysts', serviceAccount: 'sa_grp' }],
+      });
+      render(<ConfigEditor {...props} />);
+      fireEvent.click(
+        screen.getByRole('button', { name: `${Components.ConfigEditor.ServiceAccountGroupMappings.removeLabel} 1` })
+      );
+      expect(lastJsonData(props).serviceAccountGroupMappings).toEqual([]);
+    });
+
+    it('editing the groups claim updates jsonData', () => {
+      const props = mockConfigEditorProps({ serviceAccountRoutingEnabled: true });
+      render(<ConfigEditor {...props} />);
+      fireEvent.change(screen.getByPlaceholderText(Components.ConfigEditor.GroupsClaim.placeholder), {
+        target: { value: 'roles' },
+      });
+      expect(lastJsonData(props).groupsClaim).toBe('roles');
+    });
   });
 });

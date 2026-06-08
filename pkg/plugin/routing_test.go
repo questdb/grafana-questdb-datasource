@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"database/sql/driver"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -20,6 +21,11 @@ func TestLoadServiceAccountSettings(t *testing.T) {
 				"serviceAccountMappings": [
 					{ "grafanaUser": "john", "serviceAccount": "sa_analysts" },
 					{ "grafanaUser": "jane", "serviceAccount": "sa_analysts" }
+				],
+				"groupsClaim": "roles",
+				"serviceAccountGroupMappings": [
+					{ "group": "Analysts", "serviceAccount": "sa_analysts" },
+					{ "group": "Execs", "serviceAccount": "sa_execs" }
 				] }`),
 			DecryptedSecureJSONData: map[string]string{"password": "p"},
 		}
@@ -31,6 +37,11 @@ func TestLoadServiceAccountSettings(t *testing.T) {
 			{GrafanaUser: "john", ServiceAccount: "sa_analysts"},
 			{GrafanaUser: "jane", ServiceAccount: "sa_analysts"},
 		}, s.ServiceAccountMappings)
+		assert.Equal(t, "roles", s.GroupsClaim)
+		assert.Equal(t, []ServiceAccountGroupMapping{
+			{Group: "Analysts", ServiceAccount: "sa_analysts"},
+			{Group: "Execs", ServiceAccount: "sa_execs"},
+		}, s.ServiceAccountGroupMappings)
 	})
 
 	t.Run("defaults to disabled when fields absent", func(t *testing.T) {
@@ -43,6 +54,8 @@ func TestLoadServiceAccountSettings(t *testing.T) {
 		assert.False(t, s.ServiceAccountRoutingEnabled)
 		assert.Equal(t, "", s.DefaultServiceAccount)
 		assert.Nil(t, s.ServiceAccountMappings)
+		assert.Nil(t, s.ServiceAccountGroupMappings)
+		assert.Equal(t, "", s.GroupsClaim)
 	})
 
 	t.Run("LoadServiceAccountSettings parses without requiring credentials", func(t *testing.T) {
@@ -81,14 +94,14 @@ func TestResolveServiceAccount(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, settings.resolveServiceAccount(tt.user))
+			assert.Equal(t, tt.want, settings.resolveServiceAccount(tt.user, nil))
 		})
 	}
 
 	t.Run("empty default and no match returns empty", func(t *testing.T) {
 		s := Settings{ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "sa_analysts"}}}
-		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "nobody"}))
-		assert.Equal(t, "", s.resolveServiceAccount(nil))
+		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "nobody"}, nil))
+		assert.Equal(t, "", s.resolveServiceAccount(nil, nil))
 	})
 
 	t.Run("blank mapping service account falls through to the default", func(t *testing.T) {
@@ -97,9 +110,9 @@ func TestResolveServiceAccount(t *testing.T) {
 			ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "   "}},
 		}
 		// Without a default, a blank mapping must not assume the base login implicitly.
-		assert.Equal(t, "sa_default", s.resolveServiceAccount(&backend.User{Login: "john"}))
+		assert.Equal(t, "sa_default", s.resolveServiceAccount(&backend.User{Login: "john"}, nil))
 		s.DefaultServiceAccount = ""
-		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "john"}))
+		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "john"}, nil))
 	})
 
 	t.Run("a later non-blank row for the same user still matches", func(t *testing.T) {
@@ -107,7 +120,7 @@ func TestResolveServiceAccount(t *testing.T) {
 			{GrafanaUser: "john", ServiceAccount: ""},
 			{GrafanaUser: "john", ServiceAccount: "sa_analysts"},
 		}}
-		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "john"}))
+		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "john"}, nil))
 	})
 
 	t.Run("whitespace is trimmed from resolved names", func(t *testing.T) {
@@ -115,14 +128,134 @@ func TestResolveServiceAccount(t *testing.T) {
 			DefaultServiceAccount:  "  sa_default  ",
 			ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "  sa_analysts  "}},
 		}
-		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "john"}))
-		assert.Equal(t, "sa_default", s.resolveServiceAccount(&backend.User{Login: "nobody"}))
+		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "john"}, nil))
+		assert.Equal(t, "sa_default", s.resolveServiceAccount(&backend.User{Login: "nobody"}, nil))
 	})
 
 	t.Run("whitespace-only default resolves to empty", func(t *testing.T) {
 		s := Settings{DefaultServiceAccount: "   "}
-		assert.Equal(t, "", s.resolveServiceAccount(nil))
-		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "nobody"}))
+		assert.Equal(t, "", s.resolveServiceAccount(nil, nil))
+		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "nobody"}, nil))
+	})
+}
+
+func TestResolveServiceAccountGroups(t *testing.T) {
+	settings := Settings{
+		DefaultServiceAccount:  "sa_default",
+		ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "sa_user"}},
+		ServiceAccountGroupMappings: []ServiceAccountGroupMapping{
+			{Group: "Analysts", ServiceAccount: "sa_analysts"},
+			{Group: "Execs", ServiceAccount: "sa_execs"},
+		},
+	}
+
+	t.Run("group match when the user is unmapped", func(t *testing.T) {
+		assert.Equal(t, "sa_analysts", settings.resolveServiceAccount(&backend.User{Login: "nobody"}, []string{"Analysts"}))
+	})
+
+	t.Run("group match is case-insensitive", func(t *testing.T) {
+		assert.Equal(t, "sa_execs", settings.resolveServiceAccount(&backend.User{Login: "nobody"}, []string{"execs"}))
+	})
+
+	t.Run("username mapping beats group mapping", func(t *testing.T) {
+		// john has a username mapping; even though his token also carries a mapped group,
+		// the more specific username mapping wins.
+		assert.Equal(t, "sa_user", settings.resolveServiceAccount(&backend.User{Login: "john"}, []string{"Analysts"}))
+	})
+
+	t.Run("first configured group wins for multi-group membership", func(t *testing.T) {
+		// Member of both Execs and Analysts: Analysts is configured first, so it wins.
+		assert.Equal(t, "sa_analysts", settings.resolveServiceAccount(&backend.User{Login: "nobody"}, []string{"Execs", "Analysts"}))
+	})
+
+	t.Run("no matching group falls back to default", func(t *testing.T) {
+		assert.Equal(t, "sa_default", settings.resolveServiceAccount(&backend.User{Login: "nobody"}, []string{"Other"}))
+	})
+
+	t.Run("nil and empty groups fall back to default", func(t *testing.T) {
+		assert.Equal(t, "sa_default", settings.resolveServiceAccount(&backend.User{Login: "nobody"}, nil))
+		assert.Equal(t, "sa_default", settings.resolveServiceAccount(&backend.User{Login: "nobody"}, []string{}))
+	})
+
+	t.Run("nil user (alerting) with no groups falls back to default", func(t *testing.T) {
+		assert.Equal(t, "sa_default", settings.resolveServiceAccount(nil, nil))
+	})
+
+	t.Run("blank group service account is skipped", func(t *testing.T) {
+		s := Settings{
+			DefaultServiceAccount:       "sa_default",
+			ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "Analysts", ServiceAccount: "  "}},
+		}
+		assert.Equal(t, "sa_default", s.resolveServiceAccount(&backend.User{Login: "nobody"}, []string{"Analysts"}))
+	})
+
+	t.Run("blank group name matches nothing", func(t *testing.T) {
+		s := Settings{ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "  ", ServiceAccount: "sa_blank"}}}
+		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "nobody"}, []string{"", "Analysts"}))
+	})
+
+	t.Run("group names and resolved SA are trimmed on both sides", func(t *testing.T) {
+		s := Settings{ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "  Analysts  ", ServiceAccount: "  sa_analysts  "}}}
+		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "nobody"}, []string{"  Analysts  "}))
+	})
+}
+
+// makeIDToken hand-crafts a JWT (header.payload.signature) carrying the given claims. The
+// signature segment is a placeholder — extractGroups does not verify it (design D11/D12).
+func makeIDToken(t *testing.T, claims map[string]interface{}) string {
+	t.Helper()
+	enc := base64.RawURLEncoding
+	payload, err := json.Marshal(claims)
+	require.NoError(t, err)
+	return enc.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`)) + "." + enc.EncodeToString(payload) + ".sig"
+}
+
+func TestExtractGroups(t *testing.T) {
+	t.Run("reads the default groups claim", func(t *testing.T) {
+		token := makeIDToken(t, map[string]interface{}{"groups": []string{"Analysts", "Execs"}})
+		assert.Equal(t, []string{"Analysts", "Execs"}, extractGroups(token, ""))
+		assert.Equal(t, []string{"Analysts", "Execs"}, extractGroups(token, "groups"))
+	})
+
+	t.Run("reads a custom claim name", func(t *testing.T) {
+		token := makeIDToken(t, map[string]interface{}{"roles": []string{"Admins"}})
+		assert.Equal(t, []string{"Admins"}, extractGroups(token, "roles"))
+		assert.Nil(t, extractGroups(token, "groups")) // default claim absent in this token
+	})
+
+	t.Run("missing claim returns nil", func(t *testing.T) {
+		token := makeIDToken(t, map[string]interface{}{"sub": "u1"})
+		assert.Nil(t, extractGroups(token, "groups"))
+	})
+
+	t.Run("empty header returns nil", func(t *testing.T) {
+		assert.Nil(t, extractGroups("", "groups"))
+	})
+
+	t.Run("non-JWT strings return nil", func(t *testing.T) {
+		for _, s := range []string{"not-a-jwt", "a.b", "a.b.c.d", "header..sig"} {
+			assert.Nil(t, extractGroups(s, "groups"), s)
+		}
+	})
+
+	t.Run("non-base64url payload returns nil", func(t *testing.T) {
+		assert.Nil(t, extractGroups("aGVhZGVy.!!!not-base64!!!.sig", "groups"))
+	})
+
+	t.Run("payload that is not JSON returns nil", func(t *testing.T) {
+		enc := base64.RawURLEncoding
+		token := enc.EncodeToString([]byte("hdr")) + "." + enc.EncodeToString([]byte("not json")) + ".sig"
+		assert.Nil(t, extractGroups(token, "groups"))
+	})
+
+	t.Run("claim that is not a string array returns nil", func(t *testing.T) {
+		assert.Nil(t, extractGroups(makeIDToken(t, map[string]interface{}{"groups": "single"}), "groups"))
+		assert.Nil(t, extractGroups(makeIDToken(t, map[string]interface{}{"groups": []int{1, 2}}), "groups"))
+		assert.Nil(t, extractGroups(makeIDToken(t, map[string]interface{}{"groups": map[string]interface{}{"a": 1}}), "groups"))
+	})
+
+	t.Run("empty groups array returns an empty (non-nil) slice", func(t *testing.T) {
+		assert.Equal(t, []string{}, extractGroups(makeIDToken(t, map[string]interface{}{"groups": []string{}}), "groups"))
 	})
 }
 
@@ -335,6 +468,66 @@ func TestMutateQueryData(t *testing.T) {
 		var m map[string]json.RawMessage
 		require.NoError(t, json.Unmarshal(out.Queries[0].JSON, &m))
 		assert.JSONEq(t, `{"serviceAccount":"sa_default"}`, string(m["connectionArgs"]))
+	})
+
+	groupRouting := `"serviceAccountRoutingEnabled": true, "defaultServiceAccount": "sa_default",
+		"serviceAccountGroupMappings": [
+			{ "group": "Analysts", "serviceAccount": "sa_analysts" },
+			{ "group": "Execs", "serviceAccount": "sa_execs" }
+		]`
+
+	stamped := func(t *testing.T, out *backend.QueryDataRequest) json.RawMessage {
+		t.Helper()
+		var m map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(out.Queries[0].JSON, &m))
+		return m["connectionArgs"]
+	}
+
+	t.Run("group from X-Id-Token stamps the group's service account", func(t *testing.T) {
+		token := makeIDToken(t, map[string]interface{}{"groups": []string{"Analysts"}})
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: mutateDSI(groupRouting), User: &backend.User{Login: "nobody"}},
+			Headers:       map[string]string{"X-Id-Token": token},
+			Queries:       makeQueries(),
+		}
+		_, out := h.MutateQueryData(ctx, req)
+		assert.JSONEq(t, `{"serviceAccount":"sa_analysts"}`, string(stamped(t, out)))
+	})
+
+	t.Run("username mapping overrides the token group", func(t *testing.T) {
+		both := `"serviceAccountRoutingEnabled": true,
+			"serviceAccountMappings": [{ "grafanaUser": "john", "serviceAccount": "sa_user" }],
+			"serviceAccountGroupMappings": [{ "group": "Analysts", "serviceAccount": "sa_analysts" }]`
+		token := makeIDToken(t, map[string]interface{}{"groups": []string{"Analysts"}})
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: mutateDSI(both), User: &backend.User{Login: "john"}},
+			Headers:       map[string]string{"X-Id-Token": token},
+			Queries:       makeQueries(),
+		}
+		_, out := h.MutateQueryData(ctx, req)
+		assert.JSONEq(t, `{"serviceAccount":"sa_user"}`, string(stamped(t, out)))
+	})
+
+	t.Run("custom groups claim is honored", func(t *testing.T) {
+		custom := `"serviceAccountRoutingEnabled": true, "groupsClaim": "roles",
+			"serviceAccountGroupMappings": [{ "group": "Execs", "serviceAccount": "sa_execs" }]`
+		token := makeIDToken(t, map[string]interface{}{"roles": []string{"Execs"}})
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: mutateDSI(custom), User: &backend.User{Login: "nobody"}},
+			Headers:       map[string]string{"X-Id-Token": token},
+			Queries:       makeQueries(),
+		}
+		_, out := h.MutateQueryData(ctx, req)
+		assert.JSONEq(t, `{"serviceAccount":"sa_execs"}`, string(stamped(t, out)))
+	})
+
+	t.Run("no token with group mappings falls back to the default", func(t *testing.T) {
+		req := &backend.QueryDataRequest{
+			PluginContext: backend.PluginContext{DataSourceInstanceSettings: mutateDSI(groupRouting), User: &backend.User{Login: "nobody"}},
+			Queries:       makeQueries(), // no X-Id-Token header
+		}
+		_, out := h.MutateQueryData(ctx, req)
+		assert.JSONEq(t, `{"serviceAccount":"sa_default"}`, string(stamped(t, out)))
 	})
 }
 

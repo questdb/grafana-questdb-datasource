@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -291,7 +292,13 @@ func (h *QuestDB) MutateQueryData(ctx context.Context, req *backend.QueryDataReq
 	if !settings.ServiceAccountRoutingEnabled {
 		return ctx, req
 	}
-	sa := settings.resolveServiceAccount(req.PluginContext.User)
+	// Resolve OIDC groups from the forwarded ID token only when group routing is actually
+	// configured, so the (PII-bearing) token is never touched unless it is needed.
+	var groups []string
+	if len(settings.ServiceAccountGroupMappings) > 0 {
+		groups = extractGroups(req.GetHTTPHeader(backend.OAuthIdentityIDTokenHeaderName), settings.GroupsClaim)
+	}
+	sa := settings.resolveServiceAccount(req.PluginContext.User, groups)
 	if sa == "" {
 		return ctx, req // base pool, no ASSUME
 	}
@@ -320,6 +327,54 @@ func withConnectionArgs(queryJSON, connArgs json.RawMessage) json.RawMessage {
 		return queryJSON
 	}
 	return out
+}
+
+// extractGroups decodes the groups claim from a forwarded OAuth/OIDC ID token (the
+// X-Id-Token header that Grafana attaches when "Forward OAuth Identity" is on). The token
+// is injected by the Grafana server from the user's session, so it is trustworthy for
+// governance; per the design we read the claim WITHOUT verifying its signature or expiry
+// (which also sidesteps Grafana occasionally forwarding an expired token). It returns nil
+// — never an error — for a token that is absent, malformed, or whose claim is missing or
+// is not a JSON array of strings, so resolution falls through to the default account. The
+// claim name defaults to "groups" (the Okta default) when not configured.
+func extractGroups(idToken, claim string) []string {
+	if idToken == "" {
+		return nil
+	}
+	if claim == "" {
+		claim = "groups"
+	}
+	// A JWT is header.payload.signature, each base64url-encoded; only the payload is needed.
+	parts := strings.Split(idToken, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	payload, err := decodeJWTSegment(parts[1])
+	if err != nil {
+		return nil
+	}
+	var claims map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil
+	}
+	raw, ok := claims[claim]
+	if !ok {
+		return nil
+	}
+	var groups []string
+	if err := json.Unmarshal(raw, &groups); err != nil {
+		return nil // claim present but not a string array
+	}
+	return groups
+}
+
+// decodeJWTSegment base64url-decodes a single JWT segment, tolerating both the canonical
+// unpadded form and padded variants.
+func decodeJWTSegment(seg string) ([]byte, error) {
+	if m := len(seg) % 4; m != 0 {
+		seg += strings.Repeat("=", 4-m)
+	}
+	return base64.URLEncoding.DecodeString(seg)
 }
 
 // MutateResponse For any view other than traces we convert FieldTypeNullableJSON to string

@@ -8,7 +8,13 @@ import {
 import { Button, Field, IconButton, Input, SecretInput, Select, Switch } from '@grafana/ui';
 import { CertificationKey } from '../components/ui/CertificationKey';
 import { Components } from './../selectors';
-import { PostgresTLSModes, QuestDBConfig, QuestDBSecureConfig, ServiceAccountMapping } from './../types';
+import {
+  PostgresTLSModes,
+  QuestDBConfig,
+  QuestDBSecureConfig,
+  ServiceAccountGroupMapping,
+  ServiceAccountMapping,
+} from './../types';
 import { gte } from 'semver';
 import { ConfigSection, DataSourceDescription } from '@grafana/experimental';
 import { config } from '@grafana/runtime';
@@ -68,6 +74,21 @@ export const ConfigEditor: React.FC<Props> = (props) => {
   const onRemoveMapping = (index: number) => onMappingsChange(mappings.filter((_, i) => i !== index));
   const onUpdateMapping = (index: number, key: keyof ServiceAccountMapping, value: string) =>
     onMappingsChange(mappings.map((m, i) => (i === index ? { ...m, [key]: value } : m)));
+
+  const groupMappings = jsonData.serviceAccountGroupMappings ?? [];
+  const onGroupMappingsChange = (next: ServiceAccountGroupMapping[]) => {
+    onOptionsChange({
+      ...options,
+      jsonData: {
+        ...options.jsonData,
+        serviceAccountGroupMappings: next,
+      },
+    });
+  };
+  const onAddGroupMapping = () => onGroupMappingsChange([...groupMappings, { group: '', serviceAccount: '' }]);
+  const onRemoveGroupMapping = (index: number) => onGroupMappingsChange(groupMappings.filter((_, i) => i !== index));
+  const onUpdateGroupMapping = (index: number, key: keyof ServiceAccountGroupMapping, value: string) =>
+    onGroupMappingsChange(groupMappings.map((m, i) => (i === index ? { ...m, [key]: value } : m)));
 
   const onCertificateChangeFactory = (key: keyof Omit<QuestDBSecureConfig, 'password'>, value: string) => {
     onOptionsChange({
@@ -424,6 +445,56 @@ export const ConfigEditor: React.FC<Props> = (props) => {
                 ))}
                 <Button variant="secondary" icon="plus" onClick={onAddMapping}>
                   {Components.ConfigEditor.ServiceAccountMappings.addLabel}
+                </Button>
+              </div>
+            </Field>
+
+            <Field
+              label={Components.ConfigEditor.GroupsClaim.label}
+              description={Components.ConfigEditor.GroupsClaim.tooltip}
+            >
+              <Input
+                name="groupsClaim"
+                width={40}
+                value={jsonData.groupsClaim || ''}
+                onChange={onUpdateDatasourceJsonDataOption(props, 'groupsClaim')}
+                label={Components.ConfigEditor.GroupsClaim.label}
+                aria-label={Components.ConfigEditor.GroupsClaim.label}
+                placeholder={Components.ConfigEditor.GroupsClaim.placeholder}
+              />
+            </Field>
+
+            <Field
+              label={Components.ConfigEditor.ServiceAccountGroupMappings.label}
+              description={Components.ConfigEditor.ServiceAccountGroupMappings.tooltip}
+            >
+              <div>
+                {groupMappings.map((m, i) => (
+                  <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+                    <Input
+                      width={30}
+                      value={m.group}
+                      placeholder={Components.ConfigEditor.ServiceAccountGroupMappings.groupPlaceholder}
+                      aria-label={`${Components.ConfigEditor.ServiceAccountGroupMappings.groupPlaceholder} ${i + 1}`}
+                      onChange={(e) => onUpdateGroupMapping(i, 'group', e.currentTarget.value)}
+                    />
+                    <Input
+                      width={30}
+                      value={m.serviceAccount}
+                      placeholder={Components.ConfigEditor.ServiceAccountGroupMappings.serviceAccountPlaceholder}
+                      aria-label={`${Components.ConfigEditor.ServiceAccountGroupMappings.groupPlaceholder} service account ${i + 1}`}
+                      onChange={(e) => onUpdateGroupMapping(i, 'serviceAccount', e.currentTarget.value)}
+                    />
+                    <IconButton
+                      name="trash-alt"
+                      aria-label={`${Components.ConfigEditor.ServiceAccountGroupMappings.removeLabel} ${i + 1}`}
+                      tooltip={`${Components.ConfigEditor.ServiceAccountGroupMappings.removeLabel} ${i + 1}`}
+                      onClick={() => onRemoveGroupMapping(i)}
+                    />
+                  </div>
+                ))}
+                <Button variant="secondary" icon="plus" onClick={onAddGroupMapping}>
+                  {Components.ConfigEditor.ServiceAccountGroupMappings.addLabel}
                 </Button>
               </div>
             </Field>

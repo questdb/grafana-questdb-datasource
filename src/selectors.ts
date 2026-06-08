@@ -119,6 +119,20 @@ export const Components = {
       grafanaUserPlaceholder: 'Grafana user login',
       serviceAccountPlaceholder: 'Service account',
     },
+    ServiceAccountGroupMappings: {
+      label: 'Group mappings (OIDC)',
+      tooltip:
+        'Maps an OAuth/OIDC group (e.g. an Okta group from the ID token\'s "groups" claim) to a QuestDB service account. Requires "Forward OAuth Identity" enabled on this data source. A user mapping above takes precedence; when a user is in several mapped groups the first matching row (top-down) wins. Matching is case-insensitive; rows with a blank group or service account are ignored.',
+      addLabel: 'Add group mapping',
+      removeLabel: 'Remove group mapping',
+      groupPlaceholder: 'OIDC/Okta group',
+      serviceAccountPlaceholder: 'Service account',
+    },
+    GroupsClaim: {
+      label: 'Groups claim',
+      placeholder: 'groups',
+      tooltip: 'Name of the ID-token claim that holds the user\'s groups. Defaults to "groups" (the Okta default) when left empty.',
+    },
   },
   QueryEditor: {
     CodeEditor: {

@@ -19,6 +19,11 @@ export interface ServiceAccountMapping {
   serviceAccount: string;
 }
 
+export interface ServiceAccountGroupMapping {
+  group: string;
+  serviceAccount: string;
+}
+
 export interface QuestDBConfig extends DataSourceJsonData {
   username: string;
   server: string;
@@ -46,6 +51,9 @@ export interface QuestDBConfig extends DataSourceJsonData {
   serviceAccountRoutingEnabled?: boolean;
   defaultServiceAccount?: string;
   serviceAccountMappings?: ServiceAccountMapping[];
+  // Per-group routing via the forwarded OIDC ID token (requires "Forward OAuth Identity").
+  serviceAccountGroupMappings?: ServiceAccountGroupMapping[];
+  groupsClaim?: string;
 }
 
 export interface QuestDBSecureConfig {

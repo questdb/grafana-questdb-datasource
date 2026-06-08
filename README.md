@@ -147,6 +147,47 @@ too and grant it only the service accounts used here. Note that one connection p
 created per active service account (each using the configured connection limits), so favor
 groups over a unique account per user.
 
+#### Per-group routing via OIDC groups (Okta)
+
+> Builds on the feature above and is likewise **opt-in**. With no group mappings configured,
+> behavior is exactly the per-user feature's.
+
+When users log in through **OIDC / Generic OAuth** (e.g. Okta), the plugin can map a user's
+**group** to a service account, so a memory limit on that account caps everyone in the group
+without enumerating usernames. This requires **Forward OAuth Identity**
+(`jsonData.oauthPassThru: true`) on the data source: Grafana then forwards the user's ID
+token (as the `X-Id-Token` header) and the plugin reads the groups from it. The token is
+injected by the Grafana server from the user's session, so — like the username — the group
+identity cannot be forged from the query payload.
+
+Resolution is most-specific-first: **user mapping → group mapping → default service
+account**. When a user belongs to several mapped groups, the **first matching row (top-down)**
+wins. Matching is case-insensitive. Groups are read from the `groups` claim by default;
+override the claim name with `groupsClaim` if your IdP uses a different one.
+
+**Okta**: add a `groups` claim to the OIDC app's **ID token** (Sign On → OpenID Connect ID
+Token → Edit), scoped to the groups you map. **Grafana**: enable **Forward OAuth Identity**
+on the data source, then under **Per-user service accounts** add **Group mappings** (group →
+service account). Provisioned via `jsonData`:
+
+```yaml
+    jsonData:
+      oauthPassThru: true                 # Forward OAuth Identity (core Grafana setting)
+      serviceAccountRoutingEnabled: true
+      defaultServiceAccount: sa_default
+      groupsClaim: groups                 # optional; defaults to "groups"
+      serviceAccountGroupMappings:
+        - group: Analysts
+          serviceAccount: sa_analysts
+        - group: Execs
+          serviceAccount: sa_execs
+```
+
+SAML logins do not mint an OIDC ID token, so this route is unavailable there; those users
+fall back to username mappings and the default service account. The groups claim is read for
+governance without verifying the token's signature or expiry, so do not treat it as a hard
+security boundary (the `EXIT SERVICE ACCOUNT` caveat above still applies).
+
 ## Building queries
 
 The query editor allows you to query QuestDB to return time series or

@@ -36,9 +36,12 @@ type Settings struct {
 	TlsClientKeyFile  string `json:"tlsClientKeyFile"`
 
 	// Per-user service-account routing (optional; QuestDB Enterprise only).
-	ServiceAccountRoutingEnabled bool                    `json:"serviceAccountRoutingEnabled,omitempty"`
-	DefaultServiceAccount        string                  `json:"defaultServiceAccount,omitempty"`
-	ServiceAccountMappings       []ServiceAccountMapping `json:"serviceAccountMappings,omitempty"`
+	ServiceAccountRoutingEnabled bool                         `json:"serviceAccountRoutingEnabled,omitempty"`
+	DefaultServiceAccount        string                       `json:"defaultServiceAccount,omitempty"`
+	ServiceAccountMappings       []ServiceAccountMapping      `json:"serviceAccountMappings,omitempty"`
+	ServiceAccountGroupMappings  []ServiceAccountGroupMapping `json:"serviceAccountGroupMappings,omitempty"`
+	// GroupsClaim is the ID-token claim that holds the user's groups; defaults to "groups".
+	GroupsClaim string `json:"groupsClaim,omitempty"`
 }
 
 type CustomSetting struct {
@@ -50,6 +53,14 @@ type CustomSetting struct {
 // Several users may point at the same service account to form a "group".
 type ServiceAccountMapping struct {
 	GrafanaUser    string `json:"grafanaUser"`
+	ServiceAccount string `json:"serviceAccount"`
+}
+
+// ServiceAccountGroupMapping maps an OAuth/OIDC group (e.g. an Okta group carried in the
+// forwarded ID token's groups claim) to a QuestDB service account. Several groups may
+// point at the same service account.
+type ServiceAccountGroupMapping struct {
+	Group          string `json:"group"`
 	ServiceAccount string `json:"serviceAccount"`
 }
 
@@ -203,14 +214,18 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings,
 // leaves the routing fields at their zero values (routing disabled).
 func applyServiceAccountSettings(settings *Settings, jsonData []byte) {
 	var sa struct {
-		ServiceAccountRoutingEnabled bool                    `json:"serviceAccountRoutingEnabled"`
-		DefaultServiceAccount        string                  `json:"defaultServiceAccount"`
-		ServiceAccountMappings       []ServiceAccountMapping `json:"serviceAccountMappings"`
+		ServiceAccountRoutingEnabled bool                         `json:"serviceAccountRoutingEnabled"`
+		DefaultServiceAccount        string                       `json:"defaultServiceAccount"`
+		ServiceAccountMappings       []ServiceAccountMapping      `json:"serviceAccountMappings"`
+		ServiceAccountGroupMappings  []ServiceAccountGroupMapping `json:"serviceAccountGroupMappings"`
+		GroupsClaim                  string                       `json:"groupsClaim"`
 	}
 	_ = json.Unmarshal(jsonData, &sa)
 	settings.ServiceAccountRoutingEnabled = sa.ServiceAccountRoutingEnabled
 	settings.DefaultServiceAccount = sa.DefaultServiceAccount
 	settings.ServiceAccountMappings = sa.ServiceAccountMappings
+	settings.ServiceAccountGroupMappings = sa.ServiceAccountGroupMappings
+	settings.GroupsClaim = sa.GroupsClaim
 }
 
 // LoadServiceAccountSettings parses only the service-account routing fields. Unlike
@@ -223,16 +238,22 @@ func LoadServiceAccountSettings(config backend.DataSourceInstanceSettings) Setti
 	return settings
 }
 
-// resolveServiceAccount maps the requesting Grafana user to a QuestDB service account.
-// It returns "" when no ASSUME should run (the query then runs as the base login):
-// either there is no match and no configured default, or routing is effectively a no-op.
-// A nil user (backend-initiated requests such as alerting/reporting) resolves to the
-// default service account.
+// resolveServiceAccount maps the requesting Grafana user (and their OIDC groups, when
+// available) to a QuestDB service account. Precedence is most-specific-first:
+//
+//  1. username mapping  — exact (case-insensitive) match on user.Login
+//  2. group mapping     — first configured mapping whose group is in groups (case-insensitive)
+//  3. default service account
+//
+// It returns "" when none of the above yields a name (the query then runs as the base
+// login). A nil user (backend-initiated requests such as alerting/reporting) and an empty
+// groups slice both simply skip steps 1–2 and fall through to the default.
 //
 // Mappings with a blank service account are skipped: a half-filled config row must not
 // silently make a mapped user bypass the cap by dropping to the base login — such a user
-// falls through to the default instead. Returned names are whitespace-trimmed.
-func (settings *Settings) resolveServiceAccount(user *backend.User) string {
+// falls through to the next step instead. Returned names are whitespace-trimmed.
+func (settings *Settings) resolveServiceAccount(user *backend.User, groups []string) string {
+	// 1. Username mapping (most specific).
 	if user != nil && user.Login != "" {
 		for _, m := range settings.ServiceAccountMappings {
 			if strings.TrimSpace(m.ServiceAccount) == "" {
@@ -243,7 +264,32 @@ func (settings *Settings) resolveServiceAccount(user *backend.User) string {
 			}
 		}
 	}
+	// 2. Group mapping. The plugin cannot see QuestDB-side limits to pick "most
+	// restrictive", so for a user in several mapped groups the first matching row in
+	// config order wins — a deterministic, operator-controlled tie-break.
+	if len(groups) > 0 {
+		for _, gm := range settings.ServiceAccountGroupMappings {
+			if strings.TrimSpace(gm.Group) == "" || strings.TrimSpace(gm.ServiceAccount) == "" {
+				continue
+			}
+			if containsFold(groups, strings.TrimSpace(gm.Group)) {
+				return strings.TrimSpace(gm.ServiceAccount)
+			}
+		}
+	}
+	// 3. Default.
 	return strings.TrimSpace(settings.DefaultServiceAccount) // "" when unset/blank
+}
+
+// containsFold reports whether needle equals any element of haystack, case-insensitively
+// and ignoring surrounding whitespace on both sides.
+func containsFold(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if strings.EqualFold(strings.TrimSpace(s), needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // serviceAccountNamePattern guards against SQL injection / malformed names from config.
