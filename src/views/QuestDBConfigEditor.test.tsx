@@ -274,5 +274,43 @@ describe('ConfigEditor', () => {
       });
       expect(lastJsonData(props).groupsClaim).toBe('roles');
     });
+
+    it('removes the correct group row among several', () => {
+      const props = mockConfigEditorProps({
+        serviceAccountRoutingEnabled: true,
+        serviceAccountGroupMappings: [
+          { group: 'A', serviceAccount: 'sa_a' },
+          { group: 'B', serviceAccount: 'sa_b' },
+          { group: 'C', serviceAccount: 'sa_c' },
+        ],
+      });
+      render(<ConfigEditor {...props} />);
+      fireEvent.click(
+        screen.getByRole('button', { name: `${Components.ConfigEditor.ServiceAccountGroupMappings.removeLabel} 2` })
+      );
+      expect(lastJsonData(props).serviceAccountGroupMappings).toEqual([
+        { group: 'A', serviceAccount: 'sa_a' },
+        { group: 'C', serviceAccount: 'sa_c' },
+      ]);
+    });
+
+    it('updates the correct group row among several', () => {
+      const props = mockConfigEditorProps({
+        serviceAccountRoutingEnabled: true,
+        serviceAccountGroupMappings: [
+          { group: 'A', serviceAccount: 'sa_a' },
+          { group: 'B', serviceAccount: 'sa_b' },
+        ],
+      });
+      render(<ConfigEditor {...props} />);
+      // Query by the group-specific service-account aria-label so this stays unambiguous even
+      // when the user-mapping list (which shares the "Service account" placeholder) also renders.
+      const groupSaLabel = `${Components.ConfigEditor.ServiceAccountGroupMappings.groupPlaceholder} ${Components.ConfigEditor.ServiceAccountGroupMappings.serviceAccountPlaceholder} 2`;
+      fireEvent.change(screen.getByLabelText(groupSaLabel), { target: { value: 'sa_b2' } });
+      expect(lastJsonData(props).serviceAccountGroupMappings).toEqual([
+        { group: 'A', serviceAccount: 'sa_a' },
+        { group: 'B', serviceAccount: 'sa_b2' },
+      ]);
+    });
   });
 });
