@@ -49,7 +49,10 @@ export const ConfigEditor: React.FC<Props> = (props) => {
     });
   };
   const onSwitchToggle = (
-    key: keyof Pick<QuestDBConfig, 'validate' | 'enableSecureSocksProxy' | 'serviceAccountRoutingEnabled'>,
+    key: keyof Pick<
+      QuestDBConfig,
+      'validate' | 'enableSecureSocksProxy' | 'serviceAccountRoutingEnabled' | 'oauthPassThru'
+    >,
     value: boolean
   ) => {
     onOptionsChange({
@@ -429,6 +432,18 @@ export const ConfigEditor: React.FC<Props> = (props) => {
                     ariaLabel: Components.ConfigEditor.ServiceAccountMappings.serviceAccountPlaceholder,
                   },
                 ]}
+              />
+            </Field>
+
+            <Field
+              label={Components.ConfigEditor.ForwardOAuthIdentity.label}
+              description={Components.ConfigEditor.ForwardOAuthIdentity.tooltip}
+            >
+              <Switch
+                className="gf-form"
+                aria-label={Components.ConfigEditor.ForwardOAuthIdentity.label}
+                value={jsonData.oauthPassThru || false}
+                onChange={(e) => onSwitchToggle('oauthPassThru', e.currentTarget.checked)}
               />
             </Field>
 

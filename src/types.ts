@@ -54,6 +54,8 @@ export interface QuestDBConfig extends DataSourceJsonData {
   // Per-group routing via the forwarded OIDC ID token (requires "Forward OAuth Identity").
   serviceAccountGroupMappings?: ServiceAccountGroupMapping[];
   groupsClaim?: string;
+  // Grafana core "Forward OAuth Identity" flag; group routing needs the forwarded ID token.
+  oauthPassThru?: boolean;
 }
 
 export interface QuestDBSecureConfig {

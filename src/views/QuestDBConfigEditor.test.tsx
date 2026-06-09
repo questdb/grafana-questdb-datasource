@@ -138,6 +138,20 @@ describe('ConfigEditor', () => {
       expect(lastJsonData(props).serviceAccountRoutingEnabled).toBe(true);
     });
 
+    it('hides the Forward OAuth Identity switch until routing is enabled', () => {
+      render(<ConfigEditor {...mockConfigEditorProps()} />);
+      expect(
+        screen.queryByLabelText(Components.ConfigEditor.ForwardOAuthIdentity.label)
+      ).not.toBeInTheDocument();
+    });
+
+    it('toggling Forward OAuth Identity sets oauthPassThru', () => {
+      const props = mockConfigEditorProps({ serviceAccountRoutingEnabled: true });
+      render(<ConfigEditor {...props} />);
+      fireEvent.click(screen.getByLabelText(Components.ConfigEditor.ForwardOAuthIdentity.label));
+      expect(lastJsonData(props).oauthPassThru).toBe(true);
+    });
+
     it('adds a mapping row', () => {
       const props = mockConfigEditorProps({ serviceAccountRoutingEnabled: true });
       render(<ConfigEditor {...props} />);

@@ -119,6 +119,11 @@ export const Components = {
       grafanaUserPlaceholder: 'Grafana user login',
       serviceAccountPlaceholder: 'Service account',
     },
+    ForwardOAuthIdentity: {
+      label: 'Forward OAuth Identity',
+      tooltip:
+        'Grafana\'s standard "Forward OAuth Identity" setting. Forwards the signed-in user\'s OAuth/OIDC ID token to the plugin, which reads the user\'s groups from it. Required for the group mappings below; user mappings and the default account work without it.',
+    },
     ServiceAccountGroupMappings: {
       label: 'Group mappings (OIDC)',
       tooltip:
