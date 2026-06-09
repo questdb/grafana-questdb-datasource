@@ -5,7 +5,7 @@ import {
   onUpdateDatasourceSecureJsonDataOption,
   SelectableValue,
 } from '@grafana/data';
-import { Field, Input, SecretInput, Select, Switch } from '@grafana/ui';
+import { Alert, Field, Input, SecretInput, Select, Switch } from '@grafana/ui';
 import { CertificationKey } from '../components/ui/CertificationKey';
 import { MappingList } from '../components/ui/MappingList';
 import { Components } from './../selectors';
@@ -48,13 +48,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
       },
     });
   };
-  const onSwitchToggle = (
-    key: keyof Pick<
-      QuestDBConfig,
-      'validate' | 'enableSecureSocksProxy' | 'serviceAccountRoutingEnabled' | 'oauthPassThru'
-    >,
-    value: boolean
-  ) => {
+  const setJsonData = <K extends keyof QuestDBConfig>(key: K, value: QuestDBConfig[K]) => {
     onOptionsChange({
       ...options,
       jsonData: {
@@ -63,28 +57,20 @@ export const ConfigEditor: React.FC<Props> = (props) => {
       },
     });
   };
+  const onSwitchToggle = (
+    key: keyof Pick<
+      QuestDBConfig,
+      'validate' | 'enableSecureSocksProxy' | 'serviceAccountRoutingEnabled' | 'oauthPassThru'
+    >,
+    value: boolean
+  ) => setJsonData(key, value);
 
   const mappings = jsonData.serviceAccountMappings ?? [];
-  const onMappingsChange = (next: ServiceAccountMapping[]) => {
-    onOptionsChange({
-      ...options,
-      jsonData: {
-        ...options.jsonData,
-        serviceAccountMappings: next,
-      },
-    });
-  };
+  const onMappingsChange = (next: ServiceAccountMapping[]) => setJsonData('serviceAccountMappings', next);
 
   const groupMappings = jsonData.serviceAccountGroupMappings ?? [];
-  const onGroupMappingsChange = (next: ServiceAccountGroupMapping[]) => {
-    onOptionsChange({
-      ...options,
-      jsonData: {
-        ...options.jsonData,
-        serviceAccountGroupMappings: next,
-      },
-    });
-  };
+  const onGroupMappingsChange = (next: ServiceAccountGroupMapping[]) =>
+    setJsonData('serviceAccountGroupMappings', next);
 
   const onCertificateChangeFactory = (key: keyof Omit<QuestDBSecureConfig, 'password'>, value: string) => {
     onOptionsChange({
@@ -461,6 +447,13 @@ export const ConfigEditor: React.FC<Props> = (props) => {
                 placeholder={Components.ConfigEditor.GroupsClaim.placeholder}
               />
             </Field>
+
+            {groupMappings.length > 0 && !jsonData.oauthPassThru && (
+              <Alert
+                severity="warning"
+                title={Components.ConfigEditor.ServiceAccountGroupMappings.forwardOAuthWarning}
+              />
+            )}
 
             <Field
               label={Components.ConfigEditor.ServiceAccountGroupMappings.label}

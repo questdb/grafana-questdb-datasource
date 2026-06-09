@@ -326,5 +326,41 @@ describe('ConfigEditor', () => {
         { group: 'B', serviceAccount: 'sa_b2' },
       ]);
     });
+
+    it('warns when group mappings exist but Forward OAuth Identity is off', () => {
+      render(
+        <ConfigEditor
+          {...mockConfigEditorProps({
+            serviceAccountRoutingEnabled: true,
+            serviceAccountGroupMappings: [{ group: 'Analysts', serviceAccount: 'sa_grp' }],
+          })}
+        />
+      );
+      expect(
+        screen.getByText(Components.ConfigEditor.ServiceAccountGroupMappings.forwardOAuthWarning)
+      ).toBeInTheDocument();
+    });
+
+    it('hides the warning once Forward OAuth Identity is enabled', () => {
+      render(
+        <ConfigEditor
+          {...mockConfigEditorProps({
+            serviceAccountRoutingEnabled: true,
+            oauthPassThru: true,
+            serviceAccountGroupMappings: [{ group: 'Analysts', serviceAccount: 'sa_grp' }],
+          })}
+        />
+      );
+      expect(
+        screen.queryByText(Components.ConfigEditor.ServiceAccountGroupMappings.forwardOAuthWarning)
+      ).not.toBeInTheDocument();
+    });
+
+    it('does not warn when there are no group mappings', () => {
+      render(<ConfigEditor {...mockConfigEditorProps({ serviceAccountRoutingEnabled: true })} />);
+      expect(
+        screen.queryByText(Components.ConfigEditor.ServiceAccountGroupMappings.forwardOAuthWarning)
+      ).not.toBeInTheDocument();
+    });
   });
 });

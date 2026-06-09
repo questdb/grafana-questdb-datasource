@@ -132,6 +132,8 @@ export const Components = {
       removeLabel: 'Remove group mapping',
       groupPlaceholder: 'OIDC/Okta group',
       serviceAccountPlaceholder: 'Service account',
+      forwardOAuthWarning:
+        'Group mappings require "Forward OAuth Identity" (above) to be enabled; without it the ID token is not forwarded and these group rows are ignored at query time.',
     },
     GroupsClaim: {
       label: 'Groups claim',
