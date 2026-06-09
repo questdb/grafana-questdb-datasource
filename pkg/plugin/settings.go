@@ -201,13 +201,34 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings,
 		}
 	}
 
-	// Service-account routing fields are simple native JSON types (bool/string/array),
-	// so a typed unmarshal is cleaner than the map extraction used above. A parse error is
-	// ignored here (this path also backs the per-query DriverSettings lookup); PostCheckHealth
-	// surfaces a malformed routing block at Save & Test instead.
-	_ = applyServiceAccountSettings(&settings, config.JSONData)
+	// Service-account routing fields, read from the jsonData map already parsed above rather
+	// than unmarshaling config.JSONData a second time. The credential-free query path
+	// (LoadServiceAccountSettings) and the config-time validator (PostCheckHealth) instead
+	// decode these from raw bytes via applyServiceAccountSettings, which additionally reports
+	// the type mismatches Save & Test must surface; here a partial parse just degrades safely.
+	settings.ServiceAccountRoutingEnabled, _ = jsonData["serviceAccountRoutingEnabled"].(bool)
+	settings.DefaultServiceAccount, _ = jsonData["defaultServiceAccount"].(string)
+	settings.GroupsClaim, _ = jsonData["groupsClaim"].(string)
+	redecode(jsonData["serviceAccountMappings"], &settings.ServiceAccountMappings)
+	redecode(jsonData["serviceAccountGroupMappings"], &settings.ServiceAccountGroupMappings)
 
 	return settings, settings.isValid()
+}
+
+// redecode re-encodes an already-parsed JSON value (a sub-tree of the jsonData map) and
+// decodes it into dst. LoadSettings uses it to populate the typed routing slices from the
+// map it has already parsed, so config.JSONData is not unmarshaled a second time. A nil
+// value or any error leaves dst at its zero value; LoadSettings tolerates a partial routing
+// parse (PostCheckHealth reports a malformed block separately).
+func redecode(v interface{}, dst interface{}) {
+	if v == nil {
+		return
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return
+	}
+	_ = json.Unmarshal(b, dst)
 }
 
 // applyServiceAccountSettings parses the (non-secret) service-account routing fields from
@@ -283,11 +304,13 @@ func (settings *Settings) resolveServiceAccount(user *backend.User, groups []str
 	// config order wins — a deterministic, operator-controlled tie-break.
 	if len(groups) > 0 {
 		for _, gm := range settings.ServiceAccountGroupMappings {
-			if strings.TrimSpace(gm.Group) == "" || strings.TrimSpace(gm.ServiceAccount) == "" {
+			group := strings.TrimSpace(gm.Group)
+			sa := strings.TrimSpace(gm.ServiceAccount)
+			if group == "" || sa == "" {
 				continue
 			}
-			if containsFold(groups, strings.TrimSpace(gm.Group)) {
-				return strings.TrimSpace(gm.ServiceAccount)
+			if containsFold(groups, group) {
+				return sa
 			}
 		}
 	}

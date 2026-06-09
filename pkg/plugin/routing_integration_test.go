@@ -167,10 +167,10 @@ func TestPostCheckHealthRoutingIntegration(t *testing.T) {
 	})
 }
 
-// healthCheckRequest builds a CheckHealthRequest whose data source enables routing with the
-// given default service account, pointed at the test QuestDB instance (mirrors how Grafana
-// invokes CheckHealth with the decrypted password present).
-func healthCheckRequest(t *testing.T, defaultSA string) *backend.CheckHealthRequest {
+// routingTestConfig builds the shared jsonData + decrypted-secure map pointing at the test
+// QuestDB instance with service-account routing enabled. extraJSON is appended verbatim as
+// additional jsonData fields (e.g. `,"defaultServiceAccount":"sa"`); pass "" for none.
+func routingTestConfig(t *testing.T, extraJSON string) ([]byte, map[string]string) {
 	t.Helper()
 	host := getEnv("QUESTDB_HOST", "localhost")
 	port := getEnv("QUESTDB_PORT", "8812")
@@ -192,12 +192,21 @@ func healthCheckRequest(t *testing.T, defaultSA string) *backend.CheckHealthRequ
 	}
 
 	jsonData := fmt.Sprintf(
-		`{"server":%q,"port":%s,"username":%q,"tlsMode":%q,"tlsConfigurationMethod":%q,"serviceAccountRoutingEnabled":true,"defaultServiceAccount":%q}`,
-		host, port, username, tlsMode, tlsMethod, defaultSA)
+		`{"server":%q,"port":%s,"username":%q,"tlsMode":%q,"tlsConfigurationMethod":%q,"serviceAccountRoutingEnabled":true%s}`,
+		host, port, username, tlsMode, tlsMethod, extraJSON)
+	return []byte(jsonData), secure
+}
+
+// healthCheckRequest builds a CheckHealthRequest whose data source enables routing with the
+// given default service account, pointed at the test QuestDB instance (mirrors how Grafana
+// invokes CheckHealth with the decrypted password present).
+func healthCheckRequest(t *testing.T, defaultSA string) *backend.CheckHealthRequest {
+	t.Helper()
+	jsonData, secure := routingTestConfig(t, fmt.Sprintf(`,"defaultServiceAccount":%q`, defaultSA))
 	return &backend.CheckHealthRequest{
 		PluginContext: backend.PluginContext{
 			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{
-				JSONData:                []byte(jsonData),
+				JSONData:                jsonData,
 				DecryptedSecureJSONData: secure,
 			},
 		},
@@ -209,30 +218,9 @@ func healthCheckRequest(t *testing.T, defaultSA string) *backend.CheckHealthRequ
 // message. Every physical connection in the returned pool assumes sa.
 func routedConnection(t *testing.T, sa string) *sql.DB {
 	t.Helper()
-	host := getEnv("QUESTDB_HOST", "localhost")
-	port := getEnv("QUESTDB_PORT", "8812")
-	username := getEnv("QUESTDB_USERNAME", "admin")
-	password := getEnv("QUESTDB_PASSWORD", "quest")
-	tlsEnabled := getEnv("QUESTDB_TLS_ENABLED", "false")
-
-	secure := map[string]string{"password": password}
-	tlsMode := "disable"
-	tlsMethod := ""
-	if tlsEnabled == "true" {
-		tlsMode = "verify-full"
-		tlsMethod = "file-content"
-		cwd, err := os.Getwd()
-		require.NoError(t, err)
-		caCert, err := os.ReadFile(path.Join(cwd, "../../keys/my-own-ca.crt"))
-		require.NoError(t, err)
-		secure["tlsCACert"] = string(caCert)
-	}
-
-	jsonData := fmt.Sprintf(
-		`{"server":%q,"port":%s,"username":%q,"tlsMode":%q,"tlsConfigurationMethod":%q,"serviceAccountRoutingEnabled":true}`,
-		host, port, username, tlsMode, tlsMethod)
+	jsonData, secure := routingTestConfig(t, "")
 	cfg := backend.DataSourceInstanceSettings{
-		JSONData:                []byte(jsonData),
+		JSONData:                jsonData,
 		DecryptedSecureJSONData: secure,
 	}
 	msg, err := json.Marshal(map[string]string{"serviceAccount": sa})
