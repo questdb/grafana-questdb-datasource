@@ -430,8 +430,9 @@ func routingHealthError(msg string) *backend.CheckHealthResult {
 // governance; per the design we read the claim WITHOUT verifying its signature or expiry
 // (which also sidesteps Grafana occasionally forwarding an expired token). It returns nil
 // — never an error — for a token that is absent, malformed, or whose claim is missing or
-// is not a JSON array of strings, so resolution falls through to the default account. The
-// claim name defaults to "groups" (the Okta default) when not configured.
+// is not a JSON array of strings, so resolution falls through to the default account; a
+// present-but-unusable token is logged at Debug (an absent one is the normal no-forwarding
+// case and is not). The claim name defaults to "groups" (the Okta default) when not configured.
 func extractGroups(idToken, claim string) []string {
 	if idToken == "" {
 		return nil
@@ -440,24 +441,33 @@ func extractGroups(idToken, claim string) []string {
 		claim = "groups"
 	}
 	// A JWT is header.payload.signature, each base64url-encoded; only the payload is needed.
+	// A present-but-unusable token (e.g. an encrypted 5-segment JWE, which some Okta/Azure
+	// setups issue) otherwise routes every group-mapped user to the default account silently;
+	// log the fallback at Debug so it is diagnosable. The messages omit the token, payload, and
+	// parse-error text, any of which can carry the token's contents.
 	parts := strings.Split(idToken, ".")
 	if len(parts) != 3 {
+		log.DefaultLogger.Debug("QuestDB ignoring forwarded ID token for group routing: not a 3-segment JWT (encrypted JWE tokens are unsupported); using default account", "segments", len(parts))
 		return nil
 	}
 	payload, err := decodeJWTSegment(parts[1])
 	if err != nil {
+		log.DefaultLogger.Debug("QuestDB ignoring forwarded ID token for group routing: payload is not valid base64url; using default account")
 		return nil
 	}
 	var claims map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &claims); err != nil {
+		log.DefaultLogger.Debug("QuestDB ignoring forwarded ID token for group routing: payload is not valid JSON; using default account")
 		return nil
 	}
 	raw, ok := claims[claim]
 	if !ok {
+		log.DefaultLogger.Debug("QuestDB groups claim not present in forwarded ID token; using default account", "claim", claim)
 		return nil
 	}
 	var groups []string
 	if err := json.Unmarshal(raw, &groups); err != nil {
+		log.DefaultLogger.Debug("QuestDB groups claim is not a JSON array of strings; using default account", "claim", claim)
 		return nil // claim present but not a string array
 	}
 	return groups
