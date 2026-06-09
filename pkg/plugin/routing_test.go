@@ -271,6 +271,13 @@ func TestBuildAssumeStatement(t *testing.T) {
 			"sa_analysts": `ASSUME SERVICE ACCOUNT "sa_analysts"`,
 			"sa-execs":    `ASSUME SERVICE ACCOUNT "sa-execs"`,
 			"team.a_1":    `ASSUME SERVICE ACCOUNT "team.a_1"`,
+			// QuestDB allows these (mirrored denylist), so the plugin must too — see
+			// AccessListUtilsTest in questdb-enterprise. Notably a space, '@' and email form.
+			"john.doe@mail.com": `ASSUME SERVICE ACCOUNT "john.doe@mail.com"`,
+			"data team":         `ASSUME SERVICE ACCOUNT "data team"`,
+			"team!1":            `ASSUME SERVICE ACCOUNT "team!1"`,
+			"sa^x":              `ASSUME SERVICE ACCOUNT "sa^x"`,
+			"sa;ok":             `ASSUME SERVICE ACCOUNT "sa;ok"`,
 		}
 		for name, want := range valid {
 			got, err := buildAssumeStatement(name)
@@ -286,15 +293,28 @@ func TestBuildAssumeStatement(t *testing.T) {
 	})
 
 	t.Run("rejects injection / malformed names", func(t *testing.T) {
+		// Every entry contains a character QuestDB itself forbids in entity names
+		// (AccessListUtils.validateEntityName); '"' and '\\' in particular keep the quoted
+		// identifier injection-safe. A space or ';' is intentionally NOT here — QuestDB
+		// permits those, and the "valid names" case above asserts the plugin does too.
 		bad := []string{
-			`sa"; DROP TABLE x;--`,
-			`sa name`,
-			`sa;`,
-			`sa"a`,
-			`sa'a`,
-			"sa\na",
-			`"`,
-			`sa)`,
+			`sa"; DROP TABLE x;--`, // contains '"'
+			`sa"a`,                 // '"'
+			`sa\a`,                 // '\'
+			`sa'a`,                 // '\''
+			"sa\na",                // newline (control char)
+			"sa\ta",                // tab (control char)
+			`"`,                    // '"'
+			`sa)`,                  // ')'
+			`sa(x`,                 // '('
+			`sa/x`,                 // '/'
+			`sa:x`,                 // ':'
+			`sa,x`,                 // ','
+			`sa+x`,                 // '+'
+			`sa*x`,                 // '*'
+			`sa%x`,                 // '%'
+			`sa~x`,                 // '~'
+			`sa?x`,                 // '?'
 		}
 		for _, name := range bad {
 			_, err := buildAssumeStatement(name)
@@ -627,12 +647,15 @@ func TestConnectServiceAccountWrapping(t *testing.T) {
 	}
 
 	t.Run("invalid service account name errors at connect", func(t *testing.T) {
-		msg, err := json.Marshal(connectionArgs{ServiceAccount: "bad name!"})
+		// ')' is in QuestDB's forbidden set; a space or '@' would be accepted (see
+		// TestBuildAssumeStatement), so use a genuinely-forbidden character here.
+		msg, err := json.Marshal(connectionArgs{ServiceAccount: "bad)name"})
 		require.NoError(t, err)
 		db, err := (&QuestDB{}).Connect(context.Background(), cfg, msg)
 		require.Error(t, err)
 		assert.Nil(t, db)
-		assert.Contains(t, err.Error(), "invalid service account name")
+		assert.Contains(t, err.Error(), "invalid character")
+		assert.Contains(t, err.Error(), "bad)name")
 	})
 
 	t.Run("valid service account name wires the pool without error", func(t *testing.T) {
@@ -642,5 +665,107 @@ func TestConnectServiceAccountWrapping(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, db)
 		_ = db.Close()
+	})
+}
+
+// TestValidateServiceAccountNames verifies review #2's fix: configured service-account names
+// are checked at config time (so Save & Test catches a typo) rather than only at query time.
+func TestValidateServiceAccountNames(t *testing.T) {
+	t.Run("all valid names pass", func(t *testing.T) {
+		// Includes names QuestDB allows but the old allowlist rejected (space, '@', email
+		// form), locking in the "match QuestDB's denylist" decision.
+		s := Settings{
+			DefaultServiceAccount:       "sa_default",
+			ServiceAccountMappings:      []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "john.doe@mail.com"}},
+			ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "Execs", ServiceAccount: "data team"}},
+		}
+		assert.NoError(t, s.validateServiceAccountNames())
+	})
+
+	t.Run("blank names are skipped, not rejected", func(t *testing.T) {
+		// A blank default/mapping/group target means "fall through", which is valid config.
+		s := Settings{
+			DefaultServiceAccount:       "   ",
+			ServiceAccountMappings:      []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: ""}},
+			ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "Execs", ServiceAccount: "  "}},
+		}
+		assert.NoError(t, s.validateServiceAccountNames())
+	})
+
+	t.Run("invalid default account is rejected and named", func(t *testing.T) {
+		// ')' is in QuestDB's forbidden set (a space would now be accepted); the full
+		// forbidden charset is covered by TestBuildAssumeStatement.
+		s := Settings{DefaultServiceAccount: "sa)oops"}
+		err := s.validateServiceAccountNames()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "sa)oops")
+	})
+
+	t.Run("invalid user-mapping account is rejected and named", func(t *testing.T) {
+		s := Settings{ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "bad/name"}}}
+		err := s.validateServiceAccountNames()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bad/name")
+	})
+
+	t.Run("invalid group-mapping account is rejected and named", func(t *testing.T) {
+		s := Settings{ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "Execs", ServiceAccount: "sa(evil"}}}
+		err := s.validateServiceAccountNames()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "sa(evil")
+	})
+}
+
+// TestPostCheckHealth verifies review #1's fix: the health check exercises the routing path.
+// The branches here need no live DB — routing-disabled and name-validation short-circuit
+// before any connection, and the unreachable-server case proves the probe actually dials.
+func TestPostCheckHealth(t *testing.T) {
+	h := &QuestDB{}
+	ctx := context.Background()
+
+	healthReq := func(dsi *backend.DataSourceInstanceSettings) *backend.CheckHealthRequest {
+		return &backend.CheckHealthRequest{PluginContext: backend.PluginContext{DataSourceInstanceSettings: dsi}}
+	}
+
+	t.Run("nil datasource settings is healthy", func(t *testing.T) {
+		assert.Nil(t, h.PostCheckHealth(ctx, healthReq(nil)))
+	})
+
+	t.Run("routing disabled is healthy", func(t *testing.T) {
+		assert.Nil(t, h.PostCheckHealth(ctx, healthReq(mutateDSI(""))))
+	})
+
+	t.Run("invalid configured name fails before any DB probe", func(t *testing.T) {
+		// mutateDSI carries no password/secure data, so if validation did NOT short-circuit,
+		// the probe's Connect would fail for an unrelated (missing-credentials) reason. A
+		// message that names the bad account proves the failure is the config-time name check.
+		// ')' is in QuestDB's forbidden set (a space would be accepted and reach the probe).
+		dsi := mutateDSI(`"serviceAccountRoutingEnabled": true, "defaultServiceAccount": "bad)name"`)
+		res := h.PostCheckHealth(ctx, healthReq(dsi))
+		require.NotNil(t, res)
+		assert.Equal(t, backend.HealthStatusError, res.Status)
+		assert.Contains(t, res.Message, "bad)name")
+	})
+
+	t.Run("valid names with no default account is healthy (nothing to probe)", func(t *testing.T) {
+		dsi := mutateDSI(`"serviceAccountRoutingEnabled": true,
+			"serviceAccountMappings": [{ "grafanaUser": "john", "serviceAccount": "sa_analysts" }]`)
+		assert.Nil(t, h.PostCheckHealth(ctx, healthReq(dsi)))
+	})
+
+	t.Run("valid default account probes the server and surfaces a connection failure", func(t *testing.T) {
+		// Routing on with a valid default name, so PostCheckHealth opens a routed pool and
+		// pings it. The server is unreachable (loopback port 1 → connection refused), so the
+		// probe — and thus Save & Test — fails. This proves the ASSUME path is actually
+		// dialed at health-check time, which is the gap review #1 reported.
+		dsi := &backend.DataSourceInstanceSettings{
+			JSONData: []byte(`{"server":"127.0.0.1","port":1,"username":"u","tlsMode":"disable",` +
+				`"timeout":"1","serviceAccountRoutingEnabled":true,"defaultServiceAccount":"sa_default"}`),
+			DecryptedSecureJSONData: map[string]string{"password": "p"},
+		}
+		res := h.PostCheckHealth(ctx, healthReq(dsi))
+		require.NotNil(t, res)
+		assert.Equal(t, backend.HealthStatusError, res.Status)
+		assert.Contains(t, res.Message, "sa_default")
 	})
 }

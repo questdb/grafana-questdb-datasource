@@ -3,7 +3,6 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -299,10 +298,58 @@ func containsFold(haystack []string, needle string) bool {
 	return false
 }
 
-// serviceAccountNamePattern guards against SQL injection / malformed names from config.
-// It forbids whitespace, quotes and ';', so the name can be safely embedded in the
-// ASSUME statement below.
-var serviceAccountNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.\-]+$`)
+// forbiddenServiceAccountNameChars mirrors the punctuation that QuestDB Enterprise rejects
+// in entity names (server-side AccessListUtils.validateEntityName). We deliberately mirror
+// QuestDB's denylist rather than impose a stricter allowlist, so the plugin accepts exactly
+// the names QuestDB itself accepts (e.g. email-style `john.doe@mail.com`, or names with
+// spaces). Crucially the set includes '"' and '\\', so the name remains injection-safe when
+// embedded as the quoted identifier in `ASSUME SERVICE ACCOUNT "<sa>"` below.
+const forbiddenServiceAccountNameChars = `?,'"\/:)(+*%~`
+
+// validateServiceAccountName reports whether sa is a valid QuestDB service-account name,
+// mirroring QuestDB's server-side rule: reject a fixed set of punctuation plus control
+// characters (C0 0x00–0x0F, DEL, and the UTF-8 BOM — matching QuestDB exactly). The caller
+// trims surrounding whitespace and treats "" as a no-op, so sa is expected non-empty here.
+// QuestDB's configurable max name length is intentionally NOT enforced client-side (the
+// server's value is unknown to the plugin); an over-long name is caught by the live ASSUME
+// health probe instead.
+func validateServiceAccountName(sa string) error {
+	if sa == "" {
+		return fmt.Errorf("service account name cannot be empty")
+	}
+	for _, r := range sa {
+		if r <= 0x0f || r == 0x7f || r == 0xfeff || strings.ContainsRune(forbiddenServiceAccountNameChars, r) {
+			return fmt.Errorf("invalid character %q in service account name %q", r, sa)
+		}
+	}
+	return nil
+}
+
+// validateServiceAccountNames checks every configured service-account name (the default
+// plus all user- and group-mapping targets) so a typo or unsupported character is reported
+// at Save & Test time instead of silently failing every routed query later. Blank names
+// are skipped: by design a blank default/mapping means "fall through to the next step",
+// not an error. It returns the first offending name's error.
+func (settings *Settings) validateServiceAccountNames() error {
+	names := make([]string, 0, 1+len(settings.ServiceAccountMappings)+len(settings.ServiceAccountGroupMappings))
+	names = append(names, settings.DefaultServiceAccount)
+	for _, m := range settings.ServiceAccountMappings {
+		names = append(names, m.ServiceAccount)
+	}
+	for _, gm := range settings.ServiceAccountGroupMappings {
+		names = append(names, gm.ServiceAccount)
+	}
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if n == "" {
+			continue
+		}
+		if err := validateServiceAccountName(n); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // buildAssumeStatement returns the statement run on each new connection for the given
 // service account. It returns ("", nil) when sa is empty, and an error when the name
@@ -312,9 +359,10 @@ func buildAssumeStatement(sa string) (string, error) {
 	if sa == "" {
 		return "", nil
 	}
-	if !serviceAccountNamePattern.MatchString(sa) {
-		return "", fmt.Errorf("invalid service account name %q", sa)
+	if err := validateServiceAccountName(sa); err != nil {
+		return "", err
 	}
-	// The pattern forbids embedded double quotes, so the quoted identifier is injection-safe.
+	// validateServiceAccountName forbids embedded double quotes and backslashes, so the
+	// double-quoted identifier cannot be broken out of — the statement is injection-safe.
 	return `ASSUME SERVICE ACCOUNT "` + sa + `"`, nil
 }

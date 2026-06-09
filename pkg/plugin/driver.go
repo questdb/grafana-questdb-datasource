@@ -344,6 +344,74 @@ func withConnectionArgs(queryJSON, connArgs json.RawMessage) json.RawMessage {
 	return out
 }
 
+// assumeProbeTimeout bounds the routed health-check probe so a slow or hung ASSUME on a
+// misconfigured server cannot stall Save & Test indefinitely.
+const assumeProbeTimeout = 30 * time.Second
+
+// PostCheckHealth runs at Save & Test time, after sqlds has already verified base-login
+// connectivity against the default pool. That base check never exercises service-account
+// routing: it connects with no connectionArgs, so no ASSUME runs. A misconfiguration in
+// the routing path — a malformed account name, a missing
+// `GRANT ASSUME SERVICE ACCOUNT … TO <login>`, or a non-existent default account — would
+// therefore pass Save & Test and only surface later as a failure on every routed query.
+//
+// To close that gap, when routing is enabled this:
+//  1. validates every configured account name syntactically (cheap, no DB round-trip), and
+//  2. opens a routed pool for the default account and pings it, so the ASSUME actually runs
+//     against the live server.
+//
+// Per-user/per-group accounts are validated in step 1 but not live-probed: there is no
+// specific requesting user at config time, so only the default account is exercised
+// end-to-end. Returns nil (healthy) when routing is disabled or there is no default account
+// to probe; a non-nil error result fails Save & Test with an actionable message.
+func (h *QuestDB) PostCheckHealth(ctx context.Context, req *backend.CheckHealthRequest) *backend.CheckHealthResult {
+	dsi := req.PluginContext.DataSourceInstanceSettings
+	if dsi == nil {
+		return nil
+	}
+	settings := LoadServiceAccountSettings(*dsi)
+	if !settings.ServiceAccountRoutingEnabled {
+		return nil
+	}
+	if err := settings.validateServiceAccountNames(); err != nil {
+		return routingHealthError(err.Error())
+	}
+	sa := strings.TrimSpace(settings.DefaultServiceAccount)
+	if sa == "" {
+		// Only per-user/per-group mappings are configured; their names are validated above,
+		// but there is no default account to exercise end-to-end here.
+		return nil
+	}
+	msg, err := json.Marshal(connectionArgs{ServiceAccount: sa})
+	if err != nil {
+		return routingHealthError(err.Error())
+	}
+	db, err := h.Connect(ctx, *dsi, msg)
+	if err != nil {
+		return routingHealthError(err.Error())
+	}
+	defer db.Close()
+	// PingContext forces a physical connection, which is what actually runs the ASSUME via
+	// assumeServiceAccountConnector; a bare OpenDB is lazy and would prove nothing.
+	probeCtx, cancel := context.WithTimeout(ctx, assumeProbeTimeout)
+	defer cancel()
+	if err := db.PingContext(probeCtx); err != nil {
+		return routingHealthError(fmt.Sprintf(
+			"cannot assume the default service account %q: %v; ensure it exists and that the data source login has been granted ASSUME SERVICE ACCOUNT %s",
+			sa, err, sa))
+	}
+	return nil
+}
+
+// routingHealthError builds a failed health-check result tagged so the operator can tell the
+// failure came from the service-account routing probe rather than base connectivity.
+func routingHealthError(msg string) *backend.CheckHealthResult {
+	return &backend.CheckHealthResult{
+		Status:  backend.HealthStatusError,
+		Message: "Service-account routing: " + msg,
+	}
+}
+
 // extractGroups decodes the groups claim from a forwarded OAuth/OIDC ID token (the
 // X-Id-Token header that Grafana attaches when "Forward OAuth Identity" is on). The token
 // is injected by the Grafana server from the user's session, so it is trustworthy for

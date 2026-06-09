@@ -120,6 +120,90 @@ func TestServiceAccountRoutingIntegration(t *testing.T) {
 	})
 }
 
+// TestPostCheckHealthRoutingIntegration verifies review #1's fix end-to-end against a
+// running QuestDB *Enterprise* instance: Save & Test (PostCheckHealth) must actually run an
+// ASSUME for the default service account, so a routing misconfiguration fails here rather
+// than passing the green base-login check and breaking only on routed dashboard queries.
+// Enterprise-gated for the same reason as TestServiceAccountRoutingIntegration.
+func TestPostCheckHealthRoutingIntegration(t *testing.T) {
+	if strings.ToLower(getEnv("QUESTDB_ENTERPRISE", "false")) != "true" {
+		t.Skip("requires QuestDB Enterprise; set QUESTDB_ENTERPRISE=true and point QUESTDB_HOST/PORT at it")
+	}
+
+	admin := setupConnection(t)
+	defer admin.Close()
+
+	const sa = "sa_grafana_health_it"
+	username := getEnv("QUESTDB_USERNAME", "admin")
+
+	_, _ = admin.Exec("DROP SERVICE ACCOUNT " + sa) // best-effort cleanup from a prior run
+	_, err := admin.Exec("CREATE SERVICE ACCOUNT " + sa)
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = admin.Exec("DROP SERVICE ACCOUNT " + sa) })
+
+	ctx := context.Background()
+	h := &plugin.QuestDB{}
+
+	// Review #1's exact failure scenario: the account exists but the data source login was
+	// never GRANTed ASSUME on it. The base Save & Test (default pool, no ASSUME) is green, so
+	// without PostCheckHealth this misconfiguration would surface only on routed queries.
+	t.Run("unhealthy when GRANT ASSUME is missing", func(t *testing.T) {
+		res := h.PostCheckHealth(ctx, healthCheckRequest(t, sa))
+		require.NotNil(t, res, "missing GRANT ASSUME must fail Save & Test")
+		assert.Equal(t, backend.HealthStatusError, res.Status)
+	})
+
+	t.Run("healthy once the default account is granted and assumable", func(t *testing.T) {
+		_, err := admin.Exec(fmt.Sprintf("GRANT ASSUME SERVICE ACCOUNT %s TO %s", sa, username))
+		require.NoError(t, err)
+		res := h.PostCheckHealth(ctx, healthCheckRequest(t, sa))
+		assert.Nil(t, res, "a granted, assumable default account should pass Save & Test")
+	})
+
+	t.Run("unhealthy when the default account does not exist", func(t *testing.T) {
+		res := h.PostCheckHealth(ctx, healthCheckRequest(t, "sa_does_not_exist_xyz"))
+		require.NotNil(t, res, "a non-existent default account must fail Save & Test")
+		assert.Equal(t, backend.HealthStatusError, res.Status)
+	})
+}
+
+// healthCheckRequest builds a CheckHealthRequest whose data source enables routing with the
+// given default service account, pointed at the test QuestDB instance (mirrors how Grafana
+// invokes CheckHealth with the decrypted password present).
+func healthCheckRequest(t *testing.T, defaultSA string) *backend.CheckHealthRequest {
+	t.Helper()
+	host := getEnv("QUESTDB_HOST", "localhost")
+	port := getEnv("QUESTDB_PORT", "8812")
+	username := getEnv("QUESTDB_USERNAME", "admin")
+	password := getEnv("QUESTDB_PASSWORD", "quest")
+	tlsEnabled := getEnv("QUESTDB_TLS_ENABLED", "false")
+
+	secure := map[string]string{"password": password}
+	tlsMode := "disable"
+	tlsMethod := ""
+	if tlsEnabled == "true" {
+		tlsMode = "verify-full"
+		tlsMethod = "file-content"
+		cwd, err := os.Getwd()
+		require.NoError(t, err)
+		caCert, err := os.ReadFile(path.Join(cwd, "../../keys/my-own-ca.crt"))
+		require.NoError(t, err)
+		secure["tlsCACert"] = string(caCert)
+	}
+
+	jsonData := fmt.Sprintf(
+		`{"server":%q,"port":%s,"username":%q,"tlsMode":%q,"tlsConfigurationMethod":%q,"serviceAccountRoutingEnabled":true,"defaultServiceAccount":%q}`,
+		host, port, username, tlsMode, tlsMethod, defaultSA)
+	return &backend.CheckHealthRequest{
+		PluginContext: backend.PluginContext{
+			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{
+				JSONData:                []byte(jsonData),
+				DecryptedSecureJSONData: secure,
+			},
+		},
+	}
+}
+
 // routedConnection opens a *sql.DB through the plugin's Connect with service-account
 // routing enabled, mirroring how sqlds would call it with a stamped connectionArgs
 // message. Every physical connection in the returned pool assumes sa.

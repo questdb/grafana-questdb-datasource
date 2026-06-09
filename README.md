@@ -149,6 +149,13 @@ too and grant it only the service accounts used here. Note that one connection p
 created per active service account (each using the configured connection limits), so favor
 groups over a unique account per user.
 
+**Save & Test** validates the routing configuration: it rejects a malformed service-account
+name and, when a default service account is set, opens a routed connection and runs `ASSUME
+SERVICE ACCOUNT` against it — so a missing `GRANT ASSUME …` or a non-existent account is
+caught at config time rather than failing every routed query later. Per-user and per-group
+accounts are name-checked but not individually probed (there is no specific requesting user
+at config time), so verify those grants separately.
+
 #### Per-group routing via OIDC groups (Okta)
 
 > Builds on the feature above and is likewise **opt-in**. With no group mappings configured,
