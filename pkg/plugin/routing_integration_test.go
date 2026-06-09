@@ -76,7 +76,7 @@ func TestServiceAccountRoutingIntegration(t *testing.T) {
 		limited := routedConnection(t, sa)
 		defer limited.Close()
 		_, err = limited.Exec(heavy)
-		assert.Error(t, err, "tightly-capped service account should fail the query")
+		requireMemoryLimitError(t, err, "tightly-capped service account should fail the query")
 	})
 
 	t.Run("memory limit still applies after a prior error on the same pooled connection", func(t *testing.T) {
@@ -231,15 +231,21 @@ func routedConnection(t *testing.T, sa string) *sql.DB {
 	return db
 }
 
-// requireMemoryLimitError asserts that err is a server-side pq error rather than a
-// closed/dead-connection error. QuestDB surfaces a memory-limit abort as a normal PGWire
-// ErrorResponse (the connection stays open), which lib/pq returns as *pq.Error; asserting
-// that — instead of just "some error" — proves the physical connection stayed alive AND the
-// query was rejected by the cap, so a passing reuse case means the assumed service account
-// survived the prior error rather than the connection having silently died.
+// requireMemoryLimitError asserts that err is QuestDB's memory-limit abort: a server-side
+// pq error (a normal PGWire ErrorResponse, so the connection stays open and lib/pq returns
+// *pq.Error) whose message is the memory-limit cap specifically. Requiring *pq.Error rather
+// than just "some error" proves the physical connection stayed alive — so a passing reuse
+// case means the assumed service account survived the prior error rather than the connection
+// having silently died — and matching the message proves the failure is the cap, not some
+// other server-side rejection. A service-account MEMORY LIMIT is enforced as a per-workload
+// tracker limit, so QuestDB Enterprise emits "query memory limit exceeded [workload=...]";
+// the server-wide cap emits "global RSS memory limit exceeded [...]". Both contain the
+// substring "memory limit exceeded" (see io.questdb.std.Unsafe in questdb-enterprise).
 func requireMemoryLimitError(t *testing.T, err error, msg string) {
 	t.Helper()
 	require.Error(t, err, msg)
 	var pqErr *pq.Error
 	require.ErrorAs(t, err, &pqErr, msg+" (expected a server-side pq error, not a dropped connection)")
+	assert.Contains(t, strings.ToLower(pqErr.Message), "memory limit exceeded",
+		msg+" (expected a QuestDB memory-limit abort, not another server-side error)")
 }

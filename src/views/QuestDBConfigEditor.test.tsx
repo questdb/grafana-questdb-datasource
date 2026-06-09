@@ -138,6 +138,17 @@ describe('ConfigEditor', () => {
       expect(lastJsonData(props).serviceAccountRoutingEnabled).toBe(true);
     });
 
+    it('disabling routing also clears Forward OAuth Identity', () => {
+      // oauthPassThru is only reachable from inside the routing block, so turning routing off
+      // must clear it too — otherwise it is stranded on with no UI to disable it.
+      const props = mockConfigEditorProps({ serviceAccountRoutingEnabled: true, oauthPassThru: true });
+      render(<ConfigEditor {...props} />);
+      fireEvent.click(screen.getByLabelText(Components.ConfigEditor.ServiceAccountRouting.label));
+      const jd = lastJsonData(props);
+      expect(jd.serviceAccountRoutingEnabled).toBe(false);
+      expect(jd.oauthPassThru).toBe(false);
+    });
+
     it('hides the Forward OAuth Identity switch until routing is enabled', () => {
       render(<ConfigEditor {...mockConfigEditorProps()} />);
       expect(

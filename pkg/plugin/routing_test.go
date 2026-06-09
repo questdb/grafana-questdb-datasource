@@ -225,6 +225,55 @@ func TestResolveServiceAccountGroups(t *testing.T) {
 	})
 }
 
+// TestResolveServiceAccountLazy locks in that the groups callback is consulted only when
+// resolution actually reaches the group step, so a forwarded OIDC token is not decoded for
+// users a username mapping already covers (nor when no group mappings are configured).
+func TestResolveServiceAccountLazy(t *testing.T) {
+	withMappings := Settings{
+		DefaultServiceAccount:       "sa_default",
+		ServiceAccountMappings:      []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "sa_user"}},
+		ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "Analysts", ServiceAccount: "sa_grp"}},
+	}
+
+	t.Run("groups func not called when a username mapping matches", func(t *testing.T) {
+		called := false
+		sa := withMappings.resolveServiceAccountLazy(&backend.User{Login: "john"}, func() []string {
+			called = true
+			return []string{"Analysts"}
+		})
+		assert.Equal(t, "sa_user", sa)
+		assert.False(t, called, "groups func must not run once a username mapping has won")
+	})
+
+	t.Run("groups func not called when no group mappings are configured", func(t *testing.T) {
+		s := Settings{
+			DefaultServiceAccount:  "sa_default",
+			ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "sa_user"}},
+		}
+		called := false
+		sa := s.resolveServiceAccountLazy(&backend.User{Login: "nobody"}, func() []string {
+			called = true
+			return []string{"Analysts"}
+		})
+		assert.Equal(t, "sa_default", sa)
+		assert.False(t, called, "groups func must not run when there are no group mappings to match")
+	})
+
+	t.Run("groups func called and used when username misses and group mappings exist", func(t *testing.T) {
+		called := false
+		sa := withMappings.resolveServiceAccountLazy(&backend.User{Login: "nobody"}, func() []string {
+			called = true
+			return []string{"Analysts"}
+		})
+		assert.Equal(t, "sa_grp", sa)
+		assert.True(t, called, "groups func must run to reach a group mapping")
+	})
+
+	t.Run("nil groups func is tolerated and falls through to the default", func(t *testing.T) {
+		assert.Equal(t, "sa_default", withMappings.resolveServiceAccountLazy(&backend.User{Login: "nobody"}, nil))
+	})
+}
+
 // makeIDToken hand-crafts a JWT (header.payload.signature) carrying the given claims. The
 // signature segment is a placeholder — extractGroups does not verify it (design D11/D12).
 func makeIDToken(t *testing.T, claims map[string]interface{}) string {
@@ -273,10 +322,15 @@ func TestExtractGroups(t *testing.T) {
 		assert.Nil(t, extractGroups(token, "groups"))
 	})
 
-	t.Run("claim that is not a string array returns nil", func(t *testing.T) {
-		assert.Nil(t, extractGroups(makeIDToken(t, map[string]interface{}{"groups": "single"}), "groups"))
+	t.Run("claim that is neither a string nor a string array returns nil", func(t *testing.T) {
 		assert.Nil(t, extractGroups(makeIDToken(t, map[string]interface{}{"groups": []int{1, 2}}), "groups"))
 		assert.Nil(t, extractGroups(makeIDToken(t, map[string]interface{}{"groups": map[string]interface{}{"a": 1}}), "groups"))
+		assert.Nil(t, extractGroups(makeIDToken(t, map[string]interface{}{"groups": 123}), "groups"))
+	})
+
+	t.Run("single string claim is treated as a one-element group list", func(t *testing.T) {
+		// Some IdPs serialize a single group as a scalar string rather than a 1-element array.
+		assert.Equal(t, []string{"Analysts"}, extractGroups(makeIDToken(t, map[string]interface{}{"groups": "Analysts"}), "groups"))
 	})
 
 	t.Run("empty groups array returns an empty (non-nil) slice", func(t *testing.T) {

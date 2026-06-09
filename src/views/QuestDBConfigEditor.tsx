@@ -72,6 +72,22 @@ export const ConfigEditor: React.FC<Props> = (props) => {
   const onGroupMappingsChange = (next: ServiceAccountGroupMapping[]) =>
     setJsonData('serviceAccountGroupMappings', next);
 
+  // Turning routing off also clears Forward OAuth Identity: that switch lives inside the
+  // routing block, so leaving oauthPassThru on would strand it with no UI to turn it back
+  // off while Grafana keeps forwarding the user's OAuth token to the backend. The other
+  // routing fields (default account, mappings) are inert when routing is off and are kept,
+  // so an accidental toggle does not discard the operator's configured mappings.
+  const onRoutingToggle = (enabled: boolean) => {
+    if (enabled) {
+      setJsonData('serviceAccountRoutingEnabled', true);
+      return;
+    }
+    onOptionsChange({
+      ...options,
+      jsonData: { ...options.jsonData, serviceAccountRoutingEnabled: false, oauthPassThru: false },
+    });
+  };
+
   const onCertificateChangeFactory = (key: keyof Omit<QuestDBSecureConfig, 'password'>, value: string) => {
     onOptionsChange({
       ...options,
@@ -375,7 +391,7 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             className="gf-form"
             aria-label={Components.ConfigEditor.ServiceAccountRouting.label}
             value={jsonData.serviceAccountRoutingEnabled || false}
-            onChange={(e) => onSwitchToggle('serviceAccountRoutingEnabled', e.currentTarget.checked)}
+            onChange={(e) => onRoutingToggle(e.currentTarget.checked)}
           />
         </Field>
 

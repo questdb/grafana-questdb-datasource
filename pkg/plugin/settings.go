@@ -201,34 +201,15 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings,
 		}
 	}
 
-	// Service-account routing fields, read from the jsonData map already parsed above rather
-	// than unmarshaling config.JSONData a second time. The credential-free query path
-	// (LoadServiceAccountSettings) and the config-time validator (PostCheckHealth) instead
-	// decode these from raw bytes via applyServiceAccountSettings, which additionally reports
-	// the type mismatches Save & Test must surface; here a partial parse just degrades safely.
-	settings.ServiceAccountRoutingEnabled, _ = jsonData["serviceAccountRoutingEnabled"].(bool)
-	settings.DefaultServiceAccount, _ = jsonData["defaultServiceAccount"].(string)
-	settings.GroupsClaim, _ = jsonData["groupsClaim"].(string)
-	redecode(jsonData["serviceAccountMappings"], &settings.ServiceAccountMappings)
-	redecode(jsonData["serviceAccountGroupMappings"], &settings.ServiceAccountGroupMappings)
+	// Service-account routing fields. Parse them through the same struct-based helper the
+	// query path (LoadServiceAccountSettings) and the config-time validator (PostCheckHealth)
+	// use, so there is a single place to add or change a routing field. The parse error is
+	// ignored here: a partial parse degrades safely (an unparseable row drops its account and
+	// the affected user falls through toward the base login), and PostCheckHealth surfaces the
+	// same type mismatch at Save & Test.
+	_ = applyServiceAccountSettings(&settings, config.JSONData)
 
 	return settings, settings.isValid()
-}
-
-// redecode re-encodes an already-parsed JSON value (a sub-tree of the jsonData map) and
-// decodes it into dst. LoadSettings uses it to populate the typed routing slices from the
-// map it has already parsed, so config.JSONData is not unmarshaled a second time. A nil
-// value or any error leaves dst at its zero value; LoadSettings tolerates a partial routing
-// parse (PostCheckHealth reports a malformed block separately).
-func redecode(v interface{}, dst interface{}) {
-	if v == nil {
-		return
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return
-	}
-	_ = json.Unmarshal(b, dst)
 }
 
 // applyServiceAccountSettings parses the (non-secret) service-account routing fields from
@@ -266,21 +247,34 @@ func LoadServiceAccountSettings(config backend.DataSourceInstanceSettings) Setti
 	return settings
 }
 
-// resolveServiceAccount maps the requesting Grafana user (and their OIDC groups, when
-// available) to a QuestDB service account. Precedence is most-specific-first:
+// resolveServiceAccount maps the requesting Grafana user (and their already-materialized
+// OIDC groups) to a QuestDB service account. See resolveServiceAccountLazy for the
+// precedence rules; this variant takes the groups in hand and is used by tests and any
+// caller that has already resolved them.
+func (settings *Settings) resolveServiceAccount(user *backend.User, groups []string) string {
+	return settings.resolveServiceAccountLazy(user, func() []string { return groups })
+}
+
+// resolveServiceAccountLazy maps the requesting Grafana user (and their OIDC groups) to a
+// QuestDB service account. Precedence is most-specific-first:
 //
 //  1. username mapping  — exact (case-insensitive) match on user.Login
-//  2. group mapping     — first configured mapping whose group is in groups (case-insensitive)
+//  2. group mapping     — first configured mapping whose group is in the user's groups (case-insensitive)
 //  3. default service account
 //
 // It returns "" when none of the above yields a name (the query then runs as the base
-// login). A nil user (backend-initiated requests such as alerting/reporting) and an empty
-// groups slice both simply skip steps 1–2 and fall through to the default.
+// login). A nil user (backend-initiated requests such as alerting/reporting) simply skips
+// step 1 and falls through.
+//
+// groupsFn is invoked at most once, and only if resolution reaches step 2 (no username
+// mapping matched AND at least one group mapping is configured). This lets the caller defer
+// decoding a forwarded OIDC ID token until it is actually needed, so the token is not parsed
+// for username-mapped users or when no group mappings exist.
 //
 // Mappings with a blank service account are skipped: a half-filled config row must not
 // silently make a mapped user bypass the cap by dropping to the base login — such a user
 // falls through to the next step instead. Returned names are whitespace-trimmed.
-func (settings *Settings) resolveServiceAccount(user *backend.User, groups []string) string {
+func (settings *Settings) resolveServiceAccountLazy(user *backend.User, groupsFn func() []string) string {
 	// 1. Username mapping (most specific). Both sides are whitespace-trimmed before the
 	// case-insensitive compare, matching the group path below, so an operator's stray
 	// space in a mapping row does not silently prevent a match.
@@ -301,16 +295,20 @@ func (settings *Settings) resolveServiceAccount(user *backend.User, groups []str
 	}
 	// 2. Group mapping. The plugin cannot see QuestDB-side limits to pick "most
 	// restrictive", so for a user in several mapped groups the first matching row in
-	// config order wins — a deterministic, operator-controlled tie-break.
-	if len(groups) > 0 {
-		for _, gm := range settings.ServiceAccountGroupMappings {
-			group := strings.TrimSpace(gm.Group)
-			sa := strings.TrimSpace(gm.ServiceAccount)
-			if group == "" || sa == "" {
-				continue
-			}
-			if containsFold(groups, group) {
-				return sa
+	// config order wins — a deterministic, operator-controlled tie-break. Resolve the
+	// user's groups lazily and only when there are mappings to match them against, so a
+	// forwarded ID token is not decoded once a username mapping has already won.
+	if len(settings.ServiceAccountGroupMappings) > 0 && groupsFn != nil {
+		if groups := groupsFn(); len(groups) > 0 {
+			for _, gm := range settings.ServiceAccountGroupMappings {
+				group := strings.TrimSpace(gm.Group)
+				sa := strings.TrimSpace(gm.ServiceAccount)
+				if group == "" || sa == "" {
+					continue
+				}
+				if containsFold(groups, group) {
+					return sa
+				}
 			}
 		}
 	}

@@ -292,18 +292,18 @@ func (h *QuestDB) MutateQueryData(ctx context.Context, req *backend.QueryDataReq
 	if !settings.ServiceAccountRoutingEnabled {
 		return ctx, req
 	}
-	// Resolve OIDC groups from the forwarded ID token only when group routing is actually
-	// configured, so the (PII-bearing) token is never touched unless it is needed.
-	var groups []string
-	if len(settings.ServiceAccountGroupMappings) > 0 {
-		groups = extractGroups(req.GetHTTPHeader(backend.OAuthIdentityIDTokenHeaderName), settings.GroupsClaim)
-	}
 	// When routing is enabled connectionArgs is plugin-owned: stamp the resolved account,
 	// or strip any client-supplied connectionArgs when the user resolves to no account, so
 	// the service account stays server-resolved from a verified identity and a query payload
-	// can never select its own account (and thus its own memory limit).
+	// can never select its own account (and thus its own memory limit). The OIDC groups are
+	// pulled from the forwarded ID token lazily — resolveServiceAccount calls groupsFn only
+	// if it reaches the group step — so the (PII-bearing) token is never decoded for a user a
+	// username mapping already covers, nor when no group mappings are configured.
 	var connArgs json.RawMessage
-	if sa := settings.resolveServiceAccount(req.PluginContext.User, groups); sa != "" {
+	groupsFn := func() []string {
+		return extractGroups(req.GetHTTPHeader(backend.OAuthIdentityIDTokenHeaderName), settings.GroupsClaim)
+	}
+	if sa := settings.resolveServiceAccountLazy(req.PluginContext.User, groupsFn); sa != "" {
 		marshaled, err := json.Marshal(connectionArgs{ServiceAccount: sa})
 		if err != nil {
 			// Marshaling a single validated string should never fail; if it somehow does,
@@ -430,7 +430,8 @@ func routingHealthError(msg string) *backend.CheckHealthResult {
 // governance; per the design we read the claim WITHOUT verifying its signature or expiry
 // (which also sidesteps Grafana occasionally forwarding an expired token). It returns nil
 // — never an error — for a token that is absent, malformed, or whose claim is missing or
-// is not a JSON array of strings, so resolution falls through to the default account; a
+// is neither a JSON string nor an array of strings, so resolution falls through to the
+// default account; a
 // present-but-unusable token is logged at Debug (an absent one is the normal no-forwarding
 // case and is not). The claim name defaults to "groups" (the Okta default) when not configured.
 func extractGroups(idToken, claim string) []string {
@@ -466,11 +467,18 @@ func extractGroups(idToken, claim string) []string {
 		return nil
 	}
 	var groups []string
-	if err := json.Unmarshal(raw, &groups); err != nil {
-		log.DefaultLogger.Debug("QuestDB groups claim is not a JSON array of strings; using default account", "claim", claim)
-		return nil // claim present but not a string array
+	if err := json.Unmarshal(raw, &groups); err == nil {
+		return groups
 	}
-	return groups
+	// Some IdPs serialize a single group as a scalar string ("groups":"Analysts") rather than
+	// a one-element array; accept that form too so those users still match a group mapping
+	// instead of silently falling through to the default account.
+	var single string
+	if err := json.Unmarshal(raw, &single); err == nil {
+		return []string{single}
+	}
+	log.DefaultLogger.Debug("QuestDB groups claim is neither a string nor an array of strings; using default account", "claim", claim)
+	return nil // claim present but not a string or string array
 }
 
 // decodeJWTSegment base64url-decodes a single JWT segment. JWT segments use canonical
