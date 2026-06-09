@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/lib/pq"
 	"github.com/questdb/grafana-questdb-datasource/pkg/plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,6 +79,31 @@ func TestServiceAccountRoutingIntegration(t *testing.T) {
 		assert.Error(t, err, "tightly-capped service account should fail the query")
 	})
 
+	t.Run("memory limit still applies after a prior error on the same pooled connection", func(t *testing.T) {
+		// Regression guard for the per-connection ASSUME model (review #2/#6): a query that
+		// errors — here a memory-limit abort — must NOT silently revert the physical
+		// connection to the base login. We pin ONE physical connection, fail a heavy query on
+		// it, then prove the SAME reused connection is still capped. If the assumed account
+		// had reverted to the (unlimited admin) base login, the second heavy query would
+		// instead succeed. Confirmed against the Enterprise PGWire source: the assumed account
+		// lives in the per-connection SecurityContext.accessList, survives the per-query reset
+		// and non-fatal query errors, and reverts only on explicit EXIT, grant revocation, or
+		// connection teardown.
+		mustExec(fmt.Sprintf("ALTER SERVICE ACCOUNT %s SET MEMORY LIMIT 1K", sa))
+		routed := routedConnection(t, sa)
+		defer routed.Close()
+
+		conn, err := routed.Conn(context.Background())
+		require.NoError(t, err)
+		defer conn.Close()
+
+		_, err = conn.ExecContext(context.Background(), heavy)
+		requireMemoryLimitError(t, err, "first heavy query on the pinned connection should hit the cap")
+
+		_, err = conn.ExecContext(context.Background(), heavy)
+		requireMemoryLimitError(t, err, "reused connection must still be capped after the prior error")
+	})
+
 	t.Run("EXIT SERVICE ACCOUNT reverts to the base login", func(t *testing.T) {
 		mustExec(fmt.Sprintf("ALTER SERVICE ACCOUNT %s SET MEMORY LIMIT 0", sa))
 		routed := routedConnection(t, sa)
@@ -131,4 +157,17 @@ func routedConnection(t *testing.T, sa string) *sql.DB {
 	db, err := (&plugin.QuestDB{}).Connect(context.Background(), cfg, msg)
 	require.NoError(t, err)
 	return db
+}
+
+// requireMemoryLimitError asserts that err is a server-side pq error rather than a
+// closed/dead-connection error. QuestDB surfaces a memory-limit abort as a normal PGWire
+// ErrorResponse (the connection stays open), which lib/pq returns as *pq.Error; asserting
+// that — instead of just "some error" — proves the physical connection stayed alive AND the
+// query was rejected by the cap, so a passing reuse case means the assumed service account
+// survived the prior error rather than the connection having silently died.
+func requireMemoryLimitError(t *testing.T, err error, msg string) {
+	t.Helper()
+	require.Error(t, err, msg)
+	var pqErr *pq.Error
+	require.ErrorAs(t, err, &pqErr, msg+" (expected a server-side pq error, not a dropped connection)")
 }
