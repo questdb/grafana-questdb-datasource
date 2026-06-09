@@ -146,8 +146,11 @@ service account). The same can be provisioned via `jsonData`:
 This is resource governance, not a hard security boundary: the SQL editor lets a user run
 arbitrary SQL, including `EXIT SERVICE ACCOUNT;`, so set a memory limit on the base login
 too and grant it only the service accounts used here. Note that one connection pool is
-created per active service account (each using the configured connection limits), so favor
-groups over a unique account per user.
+created per active service account. `maxOpenConnections` applies **per pool** and defaults
+to `0` (unlimited), so with routing on the footprint is one unlimited pool per active
+account, not the single pool used when routing is off. Set `maxOpenConnections` to a sane
+per-pool value and favor groups over a unique account per user, so the total connection
+count stays bounded against QuestDB's PGWire connection limit.
 
 **Save & Test** validates the routing configuration: it rejects a malformed service-account
 name and, when a default service account is set, opens a routed connection and runs `ASSUME
@@ -175,9 +178,9 @@ wins. Matching is case-insensitive. Groups are read from the `groups` claim by d
 override the claim name with `groupsClaim` if your IdP uses a different one.
 
 **Okta**: add a `groups` claim to the OIDC app's **ID token** (Sign On → OpenID Connect ID
-Token → Edit), scoped to the groups you map. **Grafana**: enable **Forward OAuth Identity**
-on the data source, then under **Per-user service accounts** add **Group mappings** (group →
-service account). Provisioned via `jsonData`:
+Token → Edit), scoped to the groups you map. **Grafana**: under **Per-user service accounts**
+enable **Forward OAuth Identity** and add **Group mappings** (group → service account).
+Provisioned via `jsonData`:
 
 ```yaml
     jsonData:
