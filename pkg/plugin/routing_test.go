@@ -641,6 +641,14 @@ func TestWithConnectionArgs(t *testing.T) {
 		assert.Equal(t, string(in), string(withConnectionArgs(in, connArgs)))
 	})
 
+	t.Run("returns input unchanged on JSON null without panicking", func(t *testing.T) {
+		// `null` is the one non-object input that unmarshals without error (into a nil map);
+		// the stamp path (non-nil connArgs) must not panic on the map assignment.
+		in := json.RawMessage(`null`)
+		assert.Equal(t, string(in), string(withConnectionArgs(in, connArgs)))
+		assert.Equal(t, string(in), string(withConnectionArgs(in, nil)))
+	})
+
 	t.Run("nil connArgs removes an existing connectionArgs", func(t *testing.T) {
 		in := json.RawMessage(`{"rawSql":"select 1","connectionArgs":{"serviceAccount":"sa_evil"}}`)
 		var m map[string]json.RawMessage

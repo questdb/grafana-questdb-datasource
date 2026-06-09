@@ -326,7 +326,9 @@ func (h *QuestDB) MutateQueryData(ctx context.Context, req *backend.QueryDataReq
 // malformed (non-object) JSON it returns the input unchanged.
 func withConnectionArgs(queryJSON, connArgs json.RawMessage) json.RawMessage {
 	m := map[string]json.RawMessage{}
-	if err := json.Unmarshal(queryJSON, &m); err != nil {
+	// JSON `null` unmarshals into a nil map with no error; without the m == nil guard the
+	// m["connectionArgs"] assignment below would panic ("assignment to entry in nil map").
+	if err := json.Unmarshal(queryJSON, &m); err != nil || m == nil {
 		return queryJSON
 	}
 	if connArgs == nil {
