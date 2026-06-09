@@ -79,161 +79,136 @@ func (settings *Settings) isValid() (err error) {
 	return nil
 }
 
+// int64OrString is an integer setting that tolerates being provisioned either as a JSON
+// number (8812) or as a quoted string ("8812"); Grafana's frontend and provisioning have
+// historically stored these numeric settings both ways, so a single json.Unmarshal of the
+// config needs a type that accepts both forms. An absent field or a JSON null leaves it zero.
+type int64OrString int64
+
+func (n *int64OrString) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		return nil
+	}
+	if len(b) > 0 && b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		// Base 0 matches the previous strconv.ParseInt(..., 0, 64) behavior.
+		v, err := strconv.ParseInt(s, 0, 64)
+		if err != nil {
+			return err
+		}
+		*n = int64OrString(v)
+		return nil
+	}
+	// A JSON number; truncate a fractional form, as the old float64->int64 path did.
+	var f float64
+	if err := json.Unmarshal(b, &f); err != nil {
+		return err
+	}
+	*n = int64OrString(f)
+	return nil
+}
+
+// jsonDataSettings is the wire shape of the non-secret jsonData blob. LoadSettings unmarshals
+// the config into it once — numeric fields via int64OrString so a string-encoded number still
+// parses — and copies it into Settings; secrets come separately from DecryptedSecureJSONData.
+// The routing fields are the shared serviceAccountConfig, so they are declared in exactly one
+// place (also used by applyServiceAccountSettings).
+type jsonDataSettings struct {
+	Server                 string        `json:"server"`
+	Port                   int64OrString `json:"port"`
+	Username               string        `json:"username"`
+	Timeout                int64OrString `json:"timeout"`
+	QueryTimeout           int64OrString `json:"queryTimeout"`
+	TlsMode                string        `json:"tlsMode"`
+	ConfigurationMethod    string        `json:"tlsConfigurationMethod"`
+	TlsClientCertFile      string        `json:"tlsClientCertFile"`
+	TlsClientKeyFile       string        `json:"tlsClientKeyFile"`
+	EnableSecureSocksProxy bool          `json:"enableSecureSocksProxy"`
+	MaxOpenConnections     int64OrString `json:"maxOpenConnections"`
+	MaxIdleConnections     int64OrString `json:"maxIdleConnections"`
+	MaxConnectionLifetime  int64OrString `json:"maxConnectionLifetime"`
+	TimeInterval           string        `json:"timeInterval"`
+	serviceAccountConfig
+}
+
 // LoadSettings will read and validate Settings from the DataSourceConfig
-func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings, err error) {
-	var jsonData map[string]interface{}
-	if err := json.Unmarshal(config.JSONData, &jsonData); err != nil {
+func LoadSettings(config backend.DataSourceInstanceSettings) (Settings, error) {
+	var settings Settings
+	// Single parse of the non-secret jsonData. int64OrString lets a numeric setting arrive as
+	// either a JSON number or a quoted string; a type mismatch — or a syntactically invalid
+	// document — surfaces as ErrorMessageInvalidJSON.
+	var data jsonDataSettings
+	if err := json.Unmarshal(config.JSONData, &data); err != nil {
 		return settings, fmt.Errorf("%s: %w", err.Error(), ErrorMessageInvalidJSON)
 	}
 
-	if jsonData["server"] != nil {
-		settings.Server = jsonData["server"].(string)
-	}
-	if jsonData["port"] != nil {
-		if port, ok := jsonData["port"].(string); ok {
-			settings.Port, err = strconv.ParseInt(port, 0, 64)
-			if err != nil {
-				return settings, fmt.Errorf("could not parse port value: %w", err)
-			}
-		} else {
-			settings.Port = int64(jsonData["port"].(float64))
-		}
-	}
-	if jsonData["username"] != nil {
-		settings.Username = jsonData["username"].(string)
-	}
+	settings.Server = data.Server
+	settings.Port = int64(data.Port)
+	settings.Username = data.Username
+	settings.Timeout = int64(data.Timeout)
+	settings.QueryTimeout = int64(data.QueryTimeout)
+	settings.TlsMode = data.TlsMode
+	settings.ConfigurationMethod = data.ConfigurationMethod
+	settings.TlsClientCertFile = data.TlsClientCertFile
+	settings.TlsClientKeyFile = data.TlsClientKeyFile
+	settings.EnableSecureSocksProxy = data.EnableSecureSocksProxy
+	settings.MaxOpenConnections = int64(data.MaxOpenConnections)
+	settings.MaxIdleConnections = int64(data.MaxIdleConnections)
+	settings.MaxConnectionLifetime = int64(data.MaxConnectionLifetime)
+	settings.TimeInterval = data.TimeInterval
+	data.serviceAccountConfig.applyTo(&settings)
 
-	if jsonData["timeout"] != nil {
-		if val, ok := jsonData["timeout"].(string); ok {
-			timeout, err := strconv.ParseInt(val, 0, 64)
-			if err != nil {
-				return settings, fmt.Errorf("could not parse timeout value: %w", err)
-			}
-			settings.Timeout = timeout
-		}
-		if val, ok := jsonData["timeout"].(float64); ok {
-			settings.Timeout = int64(val)
-		}
-	}
-	if jsonData["queryTimeout"] != nil {
-		if val, ok := jsonData["queryTimeout"].(int64); ok {
-			settings.QueryTimeout = val
-		}
-		if val, ok := jsonData["queryTimeout"].(float64); ok {
-			settings.QueryTimeout = int64(val)
-		}
-	}
-
-	if strings.TrimSpace(strconv.FormatInt(settings.QueryTimeout, 10)) == "" {
-		settings.QueryTimeout = 60
-	}
-	password, ok := config.DecryptedSecureJSONData["password"]
-	if ok {
+	// Secrets live in the decrypted secure JSON blob, not in jsonData.
+	if password, ok := config.DecryptedSecureJSONData["password"]; ok {
 		settings.Password = password
 	}
-	tlsCACert, ok := config.DecryptedSecureJSONData["tlsCACert"]
-	if ok {
+	if tlsCACert, ok := config.DecryptedSecureJSONData["tlsCACert"]; ok {
 		settings.TlsCACert = tlsCACert
 	}
-	tlsClientCert, ok := config.DecryptedSecureJSONData["tlsClientCert"]
-	if ok {
+	if tlsClientCert, ok := config.DecryptedSecureJSONData["tlsClientCert"]; ok {
 		settings.TlsClientCert = tlsClientCert
 	}
-	tlsClientKey, ok := config.DecryptedSecureJSONData["tlsClientKey"]
-	if ok {
+	if tlsClientKey, ok := config.DecryptedSecureJSONData["tlsClientKey"]; ok {
 		settings.TlsClientKey = tlsClientKey
 	}
-
-	if jsonData["tlsConfigurationMethod"] != nil {
-		settings.ConfigurationMethod = jsonData["tlsConfigurationMethod"].(string)
-	}
-	if jsonData["tlsMode"] != nil {
-		settings.TlsMode = jsonData["tlsMode"].(string)
-	}
-
-	if jsonData["tlsClientCertFile"] != nil {
-		settings.TlsClientCertFile = jsonData["tlsClientCertFile"].(string)
-	}
-	if jsonData["tlsClientKeyFile"] != nil {
-		settings.TlsClientKeyFile = jsonData["tlsClientKeyFile"].(string)
-	}
-
-	if jsonData["enableSecureSocksProxy"] != nil {
-		settings.EnableSecureSocksProxy = jsonData["enableSecureSocksProxy"].(bool)
-	}
-
-	if jsonData["maxOpenConnections"] != nil {
-		if maxOpenConnections, ok := jsonData["maxOpenConnections"].(string); ok {
-			settings.MaxOpenConnections, err = strconv.ParseInt(maxOpenConnections, 0, 64)
-			if err != nil {
-				return settings, fmt.Errorf("could not parse maxOpenConnections value: %w", err)
-			}
-		} else {
-			settings.MaxOpenConnections = int64(jsonData["maxOpenConnections"].(float64))
-		}
-	}
-
-	if jsonData["maxIdleConnections"] != nil {
-		if maxIdleConnections, ok := jsonData["maxIdleConnections"].(string); ok {
-			settings.MaxIdleConnections, err = strconv.ParseInt(maxIdleConnections, 0, 64)
-			if err != nil {
-				return settings, fmt.Errorf("could not parse maxIdleConnections value: %w", err)
-			}
-		} else {
-			settings.MaxIdleConnections = int64(jsonData["maxIdleConnections"].(float64))
-		}
-	}
-
-	if jsonData["maxConnectionLifetime"] != nil {
-		if maxConnectionLifetime, ok := jsonData["maxConnectionLifetime"].(string); ok {
-			settings.MaxConnectionLifetime, err = strconv.ParseInt(maxConnectionLifetime, 0, 64)
-			if err != nil {
-				return settings, fmt.Errorf("could not parse maxConnectionLifetime value: %w", err)
-			}
-		} else {
-			settings.MaxConnectionLifetime = int64(jsonData["maxConnectionLifetime"].(float64))
-		}
-	}
-
-	if jsonData["timeInterval"] != nil {
-		if timeInterval, ok := jsonData["timeInterval"].(string); ok {
-			settings.TimeInterval = timeInterval
-		}
-	}
-
-	// Service-account routing fields. Parse them through the same struct-based helper the
-	// query path (LoadServiceAccountSettings) and the config-time validator (PostCheckHealth)
-	// use, so there is a single place to add or change a routing field. The parse error is
-	// ignored here: a partial parse degrades safely (an unparseable row drops its account and
-	// the affected user falls through toward the base login), and PostCheckHealth surfaces the
-	// same type mismatch at Save & Test.
-	_ = applyServiceAccountSettings(&settings, config.JSONData)
 
 	return settings, settings.isValid()
 }
 
-// applyServiceAccountSettings parses the (non-secret) service-account routing fields from
-// jsonData onto settings and returns the json.Unmarshal error, if any. The per-query path
-// ignores that error: a partial parse degrades safely (an unparseable mapping row drops its
-// account and the affected user falls through toward the base login). Config-time callers
-// (PostCheckHealth) surface it instead, so a provisioned type mismatch — e.g. a numeric
-// serviceAccount, or a quoted boolean for the enable flag — fails Save & Test rather than
-// silently mis-routing. A whole-document syntax error cannot occur via LoadSettings (it has
-// already parsed the same bytes); the realistic error is exactly such a field type mismatch.
-func applyServiceAccountSettings(settings *Settings, jsonData []byte) error {
-	var sa struct {
-		ServiceAccountRoutingEnabled bool                         `json:"serviceAccountRoutingEnabled"`
-		DefaultServiceAccount        string                       `json:"defaultServiceAccount"`
-		ServiceAccountMappings       []ServiceAccountMapping      `json:"serviceAccountMappings"`
-		ServiceAccountGroupMappings  []ServiceAccountGroupMapping `json:"serviceAccountGroupMappings"`
-		GroupsClaim                  string                       `json:"groupsClaim"`
-	}
-	err := json.Unmarshal(jsonData, &sa)
+// serviceAccountConfig is the wire shape of the (non-secret) service-account routing fields.
+// It is declared once and shared by LoadSettings (embedded in jsonDataSettings) and
+// applyServiceAccountSettings, so adding or changing a routing field touches a single struct.
+type serviceAccountConfig struct {
+	ServiceAccountRoutingEnabled bool                         `json:"serviceAccountRoutingEnabled"`
+	DefaultServiceAccount        string                       `json:"defaultServiceAccount"`
+	ServiceAccountMappings       []ServiceAccountMapping      `json:"serviceAccountMappings"`
+	ServiceAccountGroupMappings  []ServiceAccountGroupMapping `json:"serviceAccountGroupMappings"`
+	GroupsClaim                  string                       `json:"groupsClaim"`
+}
+
+// applyTo copies the parsed routing fields onto settings.
+func (sa serviceAccountConfig) applyTo(settings *Settings) {
 	settings.ServiceAccountRoutingEnabled = sa.ServiceAccountRoutingEnabled
 	settings.DefaultServiceAccount = sa.DefaultServiceAccount
 	settings.ServiceAccountMappings = sa.ServiceAccountMappings
 	settings.ServiceAccountGroupMappings = sa.ServiceAccountGroupMappings
 	settings.GroupsClaim = sa.GroupsClaim
+}
+
+// applyServiceAccountSettings parses the (non-secret) service-account routing fields from
+// jsonData onto settings and returns the json.Unmarshal error, if any. The per-query path
+// (LoadServiceAccountSettings) ignores that error: a partial parse degrades safely (an
+// unparseable mapping row drops its account and the affected user falls through toward the
+// base login). Config-time callers (PostCheckHealth) surface it instead, so a provisioned
+// type mismatch — e.g. a numeric serviceAccount, or a quoted boolean for the enable flag —
+// fails Save & Test rather than silently mis-routing.
+func applyServiceAccountSettings(settings *Settings, jsonData []byte) error {
+	var sa serviceAccountConfig
+	err := json.Unmarshal(jsonData, &sa)
+	sa.applyTo(settings)
 	return err
 }
 
@@ -245,14 +220,6 @@ func LoadServiceAccountSettings(config backend.DataSourceInstanceSettings) Setti
 	var settings Settings
 	_ = applyServiceAccountSettings(&settings, config.JSONData)
 	return settings
-}
-
-// resolveServiceAccount maps the requesting Grafana user (and their already-materialized
-// OIDC groups) to a QuestDB service account. See resolveServiceAccountLazy for the
-// precedence rules; this variant takes the groups in hand and is used by tests and any
-// caller that has already resolved them.
-func (settings *Settings) resolveServiceAccount(user *backend.User, groups []string) string {
-	return settings.resolveServiceAccountLazy(user, func() []string { return groups })
 }
 
 // resolveServiceAccountLazy maps the requesting Grafana user (and their OIDC groups) to a

@@ -90,6 +90,14 @@ func TestLoadServiceAccountSettings(t *testing.T) {
 	})
 }
 
+// resolveServiceAccount is a test-only convenience wrapper: the eager form of
+// resolveServiceAccountLazy that takes already-resolved groups. Production code calls
+// resolveServiceAccountLazy directly so a forwarded OIDC token is decoded only when the
+// group step is actually reached; the tests don't need that laziness.
+func (settings *Settings) resolveServiceAccount(user *backend.User, groups []string) string {
+	return settings.resolveServiceAccountLazy(user, func() []string { return groups })
+}
+
 func TestResolveServiceAccount(t *testing.T) {
 	settings := Settings{
 		DefaultServiceAccount: "sa_default",
