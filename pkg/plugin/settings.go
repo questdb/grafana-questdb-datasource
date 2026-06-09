@@ -202,16 +202,23 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings,
 	}
 
 	// Service-account routing fields are simple native JSON types (bool/string/array),
-	// so a typed unmarshal is cleaner than the map extraction used above.
-	applyServiceAccountSettings(&settings, config.JSONData)
+	// so a typed unmarshal is cleaner than the map extraction used above. A parse error is
+	// ignored here (this path also backs the per-query DriverSettings lookup); PostCheckHealth
+	// surfaces a malformed routing block at Save & Test instead.
+	_ = applyServiceAccountSettings(&settings, config.JSONData)
 
 	return settings, settings.isValid()
 }
 
 // applyServiceAccountSettings parses the (non-secret) service-account routing fields from
-// jsonData onto settings. jsonData is assumed to be valid JSON; a parse error simply
-// leaves the routing fields at their zero values (routing disabled).
-func applyServiceAccountSettings(settings *Settings, jsonData []byte) {
+// jsonData onto settings and returns the json.Unmarshal error, if any. The per-query path
+// ignores that error: a partial parse degrades safely (an unparseable mapping row drops its
+// account and the affected user falls through toward the base login). Config-time callers
+// (PostCheckHealth) surface it instead, so a provisioned type mismatch — e.g. a numeric
+// serviceAccount, or a quoted boolean for the enable flag — fails Save & Test rather than
+// silently mis-routing. A whole-document syntax error cannot occur via LoadSettings (it has
+// already parsed the same bytes); the realistic error is exactly such a field type mismatch.
+func applyServiceAccountSettings(settings *Settings, jsonData []byte) error {
 	var sa struct {
 		ServiceAccountRoutingEnabled bool                         `json:"serviceAccountRoutingEnabled"`
 		DefaultServiceAccount        string                       `json:"defaultServiceAccount"`
@@ -219,12 +226,13 @@ func applyServiceAccountSettings(settings *Settings, jsonData []byte) {
 		ServiceAccountGroupMappings  []ServiceAccountGroupMapping `json:"serviceAccountGroupMappings"`
 		GroupsClaim                  string                       `json:"groupsClaim"`
 	}
-	_ = json.Unmarshal(jsonData, &sa)
+	err := json.Unmarshal(jsonData, &sa)
 	settings.ServiceAccountRoutingEnabled = sa.ServiceAccountRoutingEnabled
 	settings.DefaultServiceAccount = sa.DefaultServiceAccount
 	settings.ServiceAccountMappings = sa.ServiceAccountMappings
 	settings.ServiceAccountGroupMappings = sa.ServiceAccountGroupMappings
 	settings.GroupsClaim = sa.GroupsClaim
+	return err
 }
 
 // LoadServiceAccountSettings parses only the service-account routing fields. Unlike
@@ -233,7 +241,7 @@ func applyServiceAccountSettings(settings *Settings, jsonData []byte) {
 // connection is established, independent of whether secrets are present in the request.
 func LoadServiceAccountSettings(config backend.DataSourceInstanceSettings) Settings {
 	var settings Settings
-	applyServiceAccountSettings(&settings, config.JSONData)
+	_ = applyServiceAccountSettings(&settings, config.JSONData)
 	return settings
 }
 

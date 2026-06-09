@@ -69,6 +69,25 @@ func TestLoadServiceAccountSettings(t *testing.T) {
 		assert.Equal(t, "sa_default", s.DefaultServiceAccount)
 		assert.Equal(t, []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "sa_analysts"}}, s.ServiceAccountMappings)
 	})
+
+	t.Run("type mismatch returns an error but still parses what it can", func(t *testing.T) {
+		// Hand-provisioned YAML can produce a type mismatch the frontend never would (here a
+		// numeric serviceAccount). json.Unmarshal records the error yet keeps populating: the
+		// per-query path runs with this partial parse (the bad row's account is blanked, so
+		// resolveServiceAccount skips it rather than dropping the user onto the uncapped base
+		// login unguarded), while PostCheckHealth surfaces the error at Save & Test.
+		var s Settings
+		err := applyServiceAccountSettings(&s, []byte(`{
+			"serviceAccountRoutingEnabled": true,
+			"defaultServiceAccount": "sa_default",
+			"serviceAccountMappings": [{ "grafanaUser": "john", "serviceAccount": 123 }]
+		}`))
+		require.Error(t, err)
+		assert.True(t, s.ServiceAccountRoutingEnabled)
+		assert.Equal(t, "sa_default", s.DefaultServiceAccount)
+		require.Len(t, s.ServiceAccountMappings, 1)
+		assert.Equal(t, "", s.ServiceAccountMappings[0].ServiceAccount)
+	})
 }
 
 func TestResolveServiceAccount(t *testing.T) {
@@ -733,6 +752,29 @@ func TestPostCheckHealth(t *testing.T) {
 
 	t.Run("routing disabled is healthy", func(t *testing.T) {
 		assert.Nil(t, h.PostCheckHealth(ctx, healthReq(mutateDSI(""))))
+	})
+
+	t.Run("malformed routing block fails before any DB probe", func(t *testing.T) {
+		// A provisioned type mismatch (numeric serviceAccount) unmarshals partially and would
+		// otherwise drop the row, routing the user to the uncapped base login unnoticed. The
+		// DSI carries no credentials, so reaching the probe would fail for an unrelated reason;
+		// a parse-specific message proves we short-circuit at config time.
+		dsi := mutateDSI(`"serviceAccountRoutingEnabled": true,
+			"serviceAccountMappings": [{ "grafanaUser": "john", "serviceAccount": 123 }]`)
+		res := h.PostCheckHealth(ctx, healthReq(dsi))
+		require.NotNil(t, res)
+		assert.Equal(t, backend.HealthStatusError, res.Status)
+		assert.Contains(t, res.Message, "could not parse routing configuration")
+	})
+
+	t.Run("mistyped enable flag is caught even though it parses as disabled", func(t *testing.T) {
+		// The enable flag itself is the type-mismatched field, so it falls back to false; an
+		// enabled-first check would skip silently. The parse-error check runs first to catch it.
+		dsi := mutateDSI(`"serviceAccountRoutingEnabled": "yes"`)
+		res := h.PostCheckHealth(ctx, healthReq(dsi))
+		require.NotNil(t, res)
+		assert.Equal(t, backend.HealthStatusError, res.Status)
+		assert.Contains(t, res.Message, "could not parse routing configuration")
 	})
 
 	t.Run("invalid configured name fails before any DB probe", func(t *testing.T) {

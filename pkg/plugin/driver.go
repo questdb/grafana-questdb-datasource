@@ -369,7 +369,17 @@ func (h *QuestDB) PostCheckHealth(ctx context.Context, req *backend.CheckHealthR
 	if dsi == nil {
 		return nil
 	}
-	settings := LoadServiceAccountSettings(*dsi)
+	// Parse directly (rather than via LoadServiceAccountSettings) so a malformed routing block
+	// is rejected here. A provisioned type mismatch unmarshals partially: the offending row is
+	// dropped/blanked, or — when the enable flag itself fails to parse — routing silently reads
+	// as "off". Either way the affected user would run on the uncapped base login with no
+	// signal, so it must fail Save & Test. Checked before the enabled short-circuit precisely
+	// to catch a mistyped enable flag. validateServiceAccountNames (below) cannot see a row the
+	// parser already dropped, so the raw parse error is surfaced too.
+	var settings Settings
+	if err := applyServiceAccountSettings(&settings, dsi.JSONData); err != nil {
+		return routingHealthError(fmt.Sprintf("could not parse routing configuration: %v", err))
+	}
 	if !settings.ServiceAccountRoutingEnabled {
 		return nil
 	}
