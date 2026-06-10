@@ -34,13 +34,9 @@ type Settings struct {
 	TlsClientCertFile string `json:"tlsClientCertFile"`
 	TlsClientKeyFile  string `json:"tlsClientKeyFile"`
 
-	// Per-user service-account routing (optional; QuestDB Enterprise only).
-	ServiceAccountRoutingEnabled bool                         `json:"serviceAccountRoutingEnabled,omitempty"`
-	DefaultServiceAccount        string                       `json:"defaultServiceAccount,omitempty"`
-	ServiceAccountMappings       []ServiceAccountMapping      `json:"serviceAccountMappings,omitempty"`
-	ServiceAccountGroupMappings  []ServiceAccountGroupMapping `json:"serviceAccountGroupMappings,omitempty"`
-	// GroupsClaim is the ID-token claim that holds the user's groups; defaults to "groups".
-	GroupsClaim string `json:"groupsClaim,omitempty"`
+	// Per-user service-account routing (optional; QuestDB Enterprise only). Declared once on
+	// the embedded serviceAccountConfig; Settings itself is never marshaled, so it adds no tags.
+	serviceAccountConfig
 }
 
 type CustomSetting struct {
@@ -61,6 +57,19 @@ type ServiceAccountMapping struct {
 type ServiceAccountGroupMapping struct {
 	Group          string `json:"group"`
 	ServiceAccount string `json:"serviceAccount"`
+}
+
+// serviceAccountConfig is the wire shape of the (non-secret) service-account routing fields,
+// declared exactly once and embedded wherever those fields are needed: in Settings (the domain
+// struct), in jsonDataSettings (the full single-pass parse in LoadSettings), and parsed on its
+// own by applyServiceAccountSettings. Adding or changing a routing field touches only this struct.
+type serviceAccountConfig struct {
+	ServiceAccountRoutingEnabled bool                         `json:"serviceAccountRoutingEnabled"`
+	DefaultServiceAccount        string                       `json:"defaultServiceAccount"`
+	ServiceAccountMappings       []ServiceAccountMapping      `json:"serviceAccountMappings"`
+	ServiceAccountGroupMappings  []ServiceAccountGroupMapping `json:"serviceAccountGroupMappings"`
+	// GroupsClaim is the ID-token claim that holds the user's groups; defaults to "groups".
+	GroupsClaim string `json:"groupsClaim"`
 }
 
 func (settings *Settings) isValid() (err error) {
@@ -159,7 +168,7 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (Settings, error) {
 	settings.MaxIdleConnections = int64(data.MaxIdleConnections)
 	settings.MaxConnectionLifetime = int64(data.MaxConnectionLifetime)
 	settings.TimeInterval = data.TimeInterval
-	data.serviceAccountConfig.applyTo(&settings)
+	settings.serviceAccountConfig = data.serviceAccountConfig
 
 	// Secrets live in the decrypted secure JSON blob, not in jsonData.
 	if password, ok := config.DecryptedSecureJSONData["password"]; ok {
@@ -178,38 +187,17 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (Settings, error) {
 	return settings, settings.isValid()
 }
 
-// serviceAccountConfig is the wire shape of the (non-secret) service-account routing fields.
-// It is declared once and shared by LoadSettings (embedded in jsonDataSettings) and
-// applyServiceAccountSettings, so adding or changing a routing field touches a single struct.
-type serviceAccountConfig struct {
-	ServiceAccountRoutingEnabled bool                         `json:"serviceAccountRoutingEnabled"`
-	DefaultServiceAccount        string                       `json:"defaultServiceAccount"`
-	ServiceAccountMappings       []ServiceAccountMapping      `json:"serviceAccountMappings"`
-	ServiceAccountGroupMappings  []ServiceAccountGroupMapping `json:"serviceAccountGroupMappings"`
-	GroupsClaim                  string                       `json:"groupsClaim"`
-}
-
-// applyTo copies the parsed routing fields onto settings.
-func (sa serviceAccountConfig) applyTo(settings *Settings) {
-	settings.ServiceAccountRoutingEnabled = sa.ServiceAccountRoutingEnabled
-	settings.DefaultServiceAccount = sa.DefaultServiceAccount
-	settings.ServiceAccountMappings = sa.ServiceAccountMappings
-	settings.ServiceAccountGroupMappings = sa.ServiceAccountGroupMappings
-	settings.GroupsClaim = sa.GroupsClaim
-}
-
 // applyServiceAccountSettings parses the (non-secret) service-account routing fields from
-// jsonData onto settings and returns the json.Unmarshal error, if any. The per-query path
-// (LoadServiceAccountSettings) ignores that error: a partial parse degrades safely (an
-// unparseable mapping row drops its account and the affected user falls through toward the
-// base login). Config-time callers (PostCheckHealth) surface it instead, so a provisioned
-// type mismatch — e.g. a numeric serviceAccount, or a quoted boolean for the enable flag —
-// fails Save & Test rather than silently mis-routing.
+// jsonData straight onto settings' embedded serviceAccountConfig and returns the
+// json.Unmarshal error, if any. The per-query path (LoadServiceAccountSettings) ignores that
+// error: a partial parse degrades safely (an unparseable mapping row drops its account and the
+// affected user falls through toward the base login). Config-time callers (PostCheckHealth)
+// surface it instead, so a provisioned type mismatch — e.g. a numeric serviceAccount, or a
+// quoted boolean for the enable flag — fails Save & Test rather than silently mis-routing.
+// Only the embedded struct's fields are targeted, so unrelated jsonData keys (server, port, …)
+// are ignored and never trip this parse.
 func applyServiceAccountSettings(settings *Settings, jsonData []byte) error {
-	var sa serviceAccountConfig
-	err := json.Unmarshal(jsonData, &sa)
-	sa.applyTo(settings)
-	return err
+	return json.Unmarshal(jsonData, &settings.serviceAccountConfig)
 }
 
 // LoadServiceAccountSettings parses only the service-account routing fields. Unlike

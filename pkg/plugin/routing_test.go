@@ -99,13 +99,13 @@ func (settings *Settings) resolveServiceAccount(user *backend.User, groups []str
 }
 
 func TestResolveServiceAccount(t *testing.T) {
-	settings := Settings{
+	settings := Settings{serviceAccountConfig: serviceAccountConfig{
 		DefaultServiceAccount: "sa_default",
 		ServiceAccountMappings: []ServiceAccountMapping{
 			{GrafanaUser: "john", ServiceAccount: "sa_analysts"},
 			{GrafanaUser: "ceo", ServiceAccount: "sa_execs"},
 		},
-	}
+	}}
 
 	tests := []struct {
 		name string
@@ -126,16 +126,16 @@ func TestResolveServiceAccount(t *testing.T) {
 	}
 
 	t.Run("empty default and no match returns empty", func(t *testing.T) {
-		s := Settings{ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "sa_analysts"}}}
+		s := Settings{serviceAccountConfig: serviceAccountConfig{ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "sa_analysts"}}}}
 		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "nobody"}, nil))
 		assert.Equal(t, "", s.resolveServiceAccount(nil, nil))
 	})
 
 	t.Run("blank mapping service account falls through to the default", func(t *testing.T) {
-		s := Settings{
+		s := Settings{serviceAccountConfig: serviceAccountConfig{
 			DefaultServiceAccount:  "sa_default",
 			ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "   "}},
-		}
+		}}
 		// Without a default, a blank mapping must not assume the base login implicitly.
 		assert.Equal(t, "sa_default", s.resolveServiceAccount(&backend.User{Login: "john"}, nil))
 		s.DefaultServiceAccount = ""
@@ -143,44 +143,44 @@ func TestResolveServiceAccount(t *testing.T) {
 	})
 
 	t.Run("a later non-blank row for the same user still matches", func(t *testing.T) {
-		s := Settings{ServiceAccountMappings: []ServiceAccountMapping{
+		s := Settings{serviceAccountConfig: serviceAccountConfig{ServiceAccountMappings: []ServiceAccountMapping{
 			{GrafanaUser: "john", ServiceAccount: ""},
 			{GrafanaUser: "john", ServiceAccount: "sa_analysts"},
-		}}
+		}}}
 		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "john"}, nil))
 	})
 
 	t.Run("whitespace is trimmed from resolved names", func(t *testing.T) {
-		s := Settings{
+		s := Settings{serviceAccountConfig: serviceAccountConfig{
 			DefaultServiceAccount:  "  sa_default  ",
 			ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "  sa_analysts  "}},
-		}
+		}}
 		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "john"}, nil))
 		assert.Equal(t, "sa_default", s.resolveServiceAccount(&backend.User{Login: "nobody"}, nil))
 	})
 
 	t.Run("whitespace-only default resolves to empty", func(t *testing.T) {
-		s := Settings{DefaultServiceAccount: "   "}
+		s := Settings{serviceAccountConfig: serviceAccountConfig{DefaultServiceAccount: "   "}}
 		assert.Equal(t, "", s.resolveServiceAccount(nil, nil))
 		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "nobody"}, nil))
 	})
 
 	t.Run("whitespace around the mapping username still matches", func(t *testing.T) {
-		s := Settings{ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "  john  ", ServiceAccount: "sa_analysts"}}}
+		s := Settings{serviceAccountConfig: serviceAccountConfig{ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "  john  ", ServiceAccount: "sa_analysts"}}}}
 		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "john"}, nil))
 		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "  john  "}, nil))
 	})
 }
 
 func TestResolveServiceAccountGroups(t *testing.T) {
-	settings := Settings{
+	settings := Settings{serviceAccountConfig: serviceAccountConfig{
 		DefaultServiceAccount:  "sa_default",
 		ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "sa_user"}},
 		ServiceAccountGroupMappings: []ServiceAccountGroupMapping{
 			{Group: "Analysts", ServiceAccount: "sa_analysts"},
 			{Group: "Execs", ServiceAccount: "sa_execs"},
 		},
-	}
+	}}
 
 	t.Run("group match when the user is unmapped", func(t *testing.T) {
 		assert.Equal(t, "sa_analysts", settings.resolveServiceAccount(&backend.User{Login: "nobody"}, []string{"Analysts"}))
@@ -215,20 +215,20 @@ func TestResolveServiceAccountGroups(t *testing.T) {
 	})
 
 	t.Run("blank group service account is skipped", func(t *testing.T) {
-		s := Settings{
+		s := Settings{serviceAccountConfig: serviceAccountConfig{
 			DefaultServiceAccount:       "sa_default",
 			ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "Analysts", ServiceAccount: "  "}},
-		}
+		}}
 		assert.Equal(t, "sa_default", s.resolveServiceAccount(&backend.User{Login: "nobody"}, []string{"Analysts"}))
 	})
 
 	t.Run("blank group name matches nothing", func(t *testing.T) {
-		s := Settings{ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "  ", ServiceAccount: "sa_blank"}}}
+		s := Settings{serviceAccountConfig: serviceAccountConfig{ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "  ", ServiceAccount: "sa_blank"}}}}
 		assert.Equal(t, "", s.resolveServiceAccount(&backend.User{Login: "nobody"}, []string{"", "Analysts"}))
 	})
 
 	t.Run("group names and resolved SA are trimmed on both sides", func(t *testing.T) {
-		s := Settings{ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "  Analysts  ", ServiceAccount: "  sa_analysts  "}}}
+		s := Settings{serviceAccountConfig: serviceAccountConfig{ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "  Analysts  ", ServiceAccount: "  sa_analysts  "}}}}
 		assert.Equal(t, "sa_analysts", s.resolveServiceAccount(&backend.User{Login: "nobody"}, []string{"  Analysts  "}))
 	})
 }
@@ -237,11 +237,11 @@ func TestResolveServiceAccountGroups(t *testing.T) {
 // resolution actually reaches the group step, so a forwarded OIDC token is not decoded for
 // users a username mapping already covers (nor when no group mappings are configured).
 func TestResolveServiceAccountLazy(t *testing.T) {
-	withMappings := Settings{
+	withMappings := Settings{serviceAccountConfig: serviceAccountConfig{
 		DefaultServiceAccount:       "sa_default",
 		ServiceAccountMappings:      []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "sa_user"}},
 		ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "Analysts", ServiceAccount: "sa_grp"}},
-	}
+	}}
 
 	t.Run("groups func not called when a username mapping matches", func(t *testing.T) {
 		called := false
@@ -254,10 +254,10 @@ func TestResolveServiceAccountLazy(t *testing.T) {
 	})
 
 	t.Run("groups func not called when no group mappings are configured", func(t *testing.T) {
-		s := Settings{
+		s := Settings{serviceAccountConfig: serviceAccountConfig{
 			DefaultServiceAccount:  "sa_default",
 			ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "sa_user"}},
-		}
+		}}
 		called := false
 		sa := s.resolveServiceAccountLazy(&backend.User{Login: "nobody"}, func() []string {
 			called = true
@@ -763,42 +763,42 @@ func TestValidateServiceAccountNames(t *testing.T) {
 	t.Run("all valid names pass", func(t *testing.T) {
 		// Includes names QuestDB allows but the old allowlist rejected (space, '@', email
 		// form), locking in the "match QuestDB's denylist" decision.
-		s := Settings{
+		s := Settings{serviceAccountConfig: serviceAccountConfig{
 			DefaultServiceAccount:       "sa_default",
 			ServiceAccountMappings:      []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "john.doe@mail.com"}},
 			ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "Execs", ServiceAccount: "data team"}},
-		}
+		}}
 		assert.NoError(t, s.validateServiceAccountNames())
 	})
 
 	t.Run("blank names are skipped, not rejected", func(t *testing.T) {
 		// A blank default/mapping/group target means "fall through", which is valid config.
-		s := Settings{
+		s := Settings{serviceAccountConfig: serviceAccountConfig{
 			DefaultServiceAccount:       "   ",
 			ServiceAccountMappings:      []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: ""}},
 			ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "Execs", ServiceAccount: "  "}},
-		}
+		}}
 		assert.NoError(t, s.validateServiceAccountNames())
 	})
 
 	t.Run("invalid default account is rejected and named", func(t *testing.T) {
 		// ')' is in QuestDB's forbidden set (a space would now be accepted); the full
 		// forbidden charset is covered by TestBuildAssumeStatement.
-		s := Settings{DefaultServiceAccount: "sa)oops"}
+		s := Settings{serviceAccountConfig: serviceAccountConfig{DefaultServiceAccount: "sa)oops"}}
 		err := s.validateServiceAccountNames()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "sa)oops")
 	})
 
 	t.Run("invalid user-mapping account is rejected and named", func(t *testing.T) {
-		s := Settings{ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "bad/name"}}}
+		s := Settings{serviceAccountConfig: serviceAccountConfig{ServiceAccountMappings: []ServiceAccountMapping{{GrafanaUser: "john", ServiceAccount: "bad/name"}}}}
 		err := s.validateServiceAccountNames()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "bad/name")
 	})
 
 	t.Run("invalid group-mapping account is rejected and named", func(t *testing.T) {
-		s := Settings{ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "Execs", ServiceAccount: "sa(evil"}}}
+		s := Settings{serviceAccountConfig: serviceAccountConfig{ServiceAccountGroupMappings: []ServiceAccountGroupMapping{{Group: "Execs", ServiceAccount: "sa(evil"}}}}
 		err := s.validateServiceAccountNames()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "sa(evil")
