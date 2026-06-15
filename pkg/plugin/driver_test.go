@@ -15,11 +15,11 @@ import (
 
 	"github.com/lib/pq"
 
-	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/mount"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/questdb/grafana-questdb-datasource/pkg/converters"
 	"github.com/questdb/grafana-questdb-datasource/pkg/plugin"
 	"github.com/stretchr/testify/assert"
@@ -72,8 +72,14 @@ func TestMain(m *testing.M) {
 			"QDB_PG_TLS_ENABLED":          questDbTlsEnabled,
 			"QDB_PG_TLS_CERT_PATH":        "/var/lib/questdb/conf/keys/server.crt",
 			"QDB_PG_TLS_PRIVATE_KEY_PATH": "/var/lib/questdb/conf/keys/server.key",
+			// Expose the prometheus endpoint (port 9003) so integration tests can
+			// observe the pgwire select-cache counters, and pin the select cache on
+			// (the default) so the test env matches the plan-cache premise the
+			// time-bound parameterization relies on.
+			"QDB_METRICS_ENABLED":         "true",
+			"QDB_PG_SELECT_CACHE_ENABLED": "true",
 		},
-		ExposedPorts: []string{"9000/tcp", "8812/tcp"},
+		ExposedPorts: []string{"9000/tcp", "8812/tcp", "9003/tcp"},
 		HostConfigModifier: func(config *container.HostConfig) {
 			config.Mounts = append(config.Mounts,
 				mount.Mount{Source: path.Join(cwd, keysPath), Target: "/var/lib/questdb/conf/keys", ReadOnly: true, Type: mount.TypeBind})
@@ -92,6 +98,14 @@ func TestMain(m *testing.M) {
 	p, _ := questdbContainer.MappedPort(ctx, "8812")
 	os.Setenv("QUESTDB_PORT", p.Port())
 	os.Setenv("QUESTDB_HOST", "localhost")
+	// Fail loudly rather than leaving QUESTDB_METRICS_PORT unset: the plan-cache
+	// validation test skips without it, and a silent skip would let the headline
+	// regression signal vanish from CI while the build stays green.
+	mp, err := questdbContainer.MappedPort(ctx, "9003")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("QUESTDB_METRICS_PORT", mp.Port())
 	defer questdbContainer.Terminate(ctx) //nolint
 	os.Exit(m.Run())
 }

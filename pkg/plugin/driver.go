@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/lib/pq"
@@ -25,8 +26,16 @@ import (
 	"github.com/questdb/grafana-questdb-datasource/pkg/macros"
 )
 
-// QuestDB defines how to connect to a QuestDB datasource
-type QuestDB struct{}
+// QuestDB defines how to connect to a QuestDB datasource. main.go creates one instance
+// per datasource, so instance state is per-datasource.
+type QuestDB struct {
+	// bindParamsEnabled mirrors the inverse of the "disable prepared statements"
+	// datasource setting: whether MutateQuery binds the dashboard time bounds as
+	// query parameters. Set at Connect (atomic only because Connect can in principle
+	// re-run concurrently with queries); until then (zero value) queries run with
+	// literal time bounds. See timeparam.go.
+	bindParamsEnabled atomic.Bool
+}
 
 func getClientVersion(ctx context.Context) string {
 	result := ""
@@ -101,6 +110,11 @@ func (h *QuestDB) Connect(ctx context.Context, config backend.DataSourceInstance
 	db.SetMaxOpenConns(int(settings.MaxOpenConnections))
 	db.SetMaxIdleConns(int(settings.MaxIdleConnections))
 	db.SetConnMaxLifetime(time.Duration(settings.MaxConnectionLifetime) * time.Second)
+
+	h.bindParamsEnabled.Store(!settings.DisablePreparedStatements)
+	if !settings.DisablePreparedStatements {
+		warnIfBindParamsUnsupported(ctx, db) // advisory only; see timeparam.go
+	}
 
 	log.DefaultLogger.Debug("Connection settings", "max open", int(settings.MaxOpenConnections),
 		"max idle", int(settings.MaxIdleConnections),
@@ -204,14 +218,11 @@ func (h *QuestDB) Converters() []sqlutil.Converter {
 	return converters.QdbConverters
 }
 
-// Macros returns list of macro functions convert the macros of raw query
+// Macros returns list of macro functions convert the macros of raw query. The
+// literal-emitting set is the fallback interpolation path: queries MutateQuery
+// parameterizes carry no macros by the time sqlds applies these.
 func (h *QuestDB) Macros() sqlds.Macros {
-	return map[string]sqlds.MacroFunc{
-		"fromTime":         macros.FromTimeFilter,
-		"toTime":           macros.ToTimeFilter,
-		"timeFilter":       macros.TimeFilter,
-		"sampleByInterval": macros.SampleByInterval,
-	}
+	return macros.LiteralMacros()
 }
 
 func (h *QuestDB) Settings(ctx context.Context, config backend.DataSourceInstanceSettings) sqlds.DriverSettings {
@@ -229,28 +240,6 @@ func (h *QuestDB) Settings(ctx context.Context, config backend.DataSourceInstanc
 			Mode: data.FillModeNull,
 		},
 	}
-}
-
-func (h *QuestDB) MutateQuery(ctx context.Context, req backend.DataQuery) (context.Context, backend.DataQuery) {
-	var dataQuery struct {
-		Meta struct {
-			TimeZone string `json:"timezone"`
-		} `json:"meta"`
-		Format int `json:"format"`
-	}
-
-	if err := json.Unmarshal(req.JSON, &dataQuery); err != nil {
-		return ctx, req
-	}
-	if dataQuery.Meta.TimeZone == "" {
-		return ctx, req
-	}
-	return ctx, req
-}
-
-// MutateResponse For any view other than traces we convert FieldTypeNullableJSON to string
-func (h *QuestDB) MutateResponse(ctx context.Context, res data.Frames) (data.Frames, error) {
-	return res, nil
 }
 
 // postgresProxyDialer implements the postgres dialer using a proxy dialer, as their functions differ slightly

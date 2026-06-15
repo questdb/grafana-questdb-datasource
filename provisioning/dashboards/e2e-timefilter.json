@@ -1,0 +1,32 @@
+{
+  "uid": "qdb-e2e-timefilter",
+  "title": "QuestDB e2e - parameterized time bounds",
+  "tags": ["e2e"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "",
+  "time": {
+    "from": "2024-01-20T11:30:00.000Z",
+    "to": "2024-01-20T13:30:00.000Z"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "rows in window",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "questdb-questdb-datasource", "uid": "questdb-e2e" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "questdb-questdb-datasource", "uid": "questdb-e2e" },
+          "queryType": "sql",
+          "rawSql": "SELECT ts, val FROM e2e_trades WHERE $__timeFilter(ts)",
+          "format": 1,
+          "meta": {}
+        }
+      ]
+    }
+  ]
+}

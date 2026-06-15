@@ -35,7 +35,13 @@ Edit `package.json` and update the `"version"` field (e.g. `"0.1.7"`).
 
 > **Note:** `src/plugin.json` uses `%VERSION%` which is replaced at build time by CI. Do not hardcode a version there.
 
-### 1.3 Install frontend dependencies
+### 1.3 Update the changelog
+
+If `CHANGELOG.md` has an `## Unreleased` section, rename it to the version being released
+(e.g. `## 0.1.9`). The changelog ships inside the plugin zip and is rendered on the plugin's
+grafana.com page, so an `Unreleased` heading must not reach a published release.
+
+### 1.4 Install frontend dependencies
 
 ```bash
 yarn install
@@ -80,7 +86,7 @@ yarn build
 
 Should compile with no errors. Bundle size should be around 400 KiB. Warnings about performance recommendations are expected.
 
-### 2.2 Backend build
+### 2.3 Backend build
 
 Use `mage` to build the backend for all platforms:
 
@@ -122,17 +128,48 @@ go test -v -count=1 ./...
 
 The `-count=1` flag forces the full suite to run, ignoring cache. For incremental changes during development, plain `go test ./...` is fine.
 
+### 3.3 End-to-end tests (Playwright against real Grafana)
+
+The e2e suite drives a real Grafana + QuestDB stack (the `docker-compose.yml` services) with
+[`@grafana/plugin-e2e`](https://grafana.com/developers/plugin-tools/e2e-test-a-plugin/get-started):
+datasource provisioning + health check, the config-editor UI, and dashboard queries — including
+asserting that the time-bound macros execute as bind parameters (or as inline literals when the
+datasource opts out of prepared statements, as required for QuestDB older than 8.3.0).
+
+```bash
+yarn build                                 # frontend -> dist/
+mage build:linux                           # backend  -> dist/ (linux binary for the container)
+docker compose up -d --wait                # Grafana (GR_VERSION) + QuestDB (QDB_VERSION)
+yarn playwright install chromium           # first run only
+yarn e2e
+```
+
+Override the stack with `GR_VERSION=... QDB_VERSION=... docker compose up -d --wait`. For a
+QuestDB older than 8.3.0, also export `QDB_DISABLE_PREPARED_STATEMENTS=true` (for both
+`docker compose up` and `yarn e2e`): it provisions the datasource with prepared statements
+disabled and switches the suite's assertions to the literal path. CI runs both legs via
+`.github/workflows/e2e-tests.yml`.
+
 ## 4. Integration Testing with Docker
 
 Grafana will complain about the plugin being unsigned, which you can skip during development by passing `-e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=questdb-questdb-datasource`. With the `docker-compose.yml`, the env var `GF_DEFAULT_APP_MODE=development` is set, which also allows unsigned plugins.
 
 ### 4.1 Using docker-compose (with QuestDB in Docker)
 
-The repo includes `docker-compose.yml` which starts Grafana and QuestDB together. The entire repo is mounted as the plugin directory, and a datasource is auto-provisioned.
+The repo includes `docker-compose.yml` which starts Grafana and QuestDB together. The built plugin
+in `dist/` is mounted as the plugin directory (only `dist/`, not the repo root — two `plugin.json`
+files with the same id confuse Grafana's plugin scanner), and a datasource is auto-provisioned.
+Build before starting the stack:
 
 ```bash
+yarn build                                 # frontend -> dist/
+mage build:linux                           # backend  -> dist/
 GR_VERSION=12.3.0 docker compose up -d
 ```
+
+`yarn server` runs the same compose-up behind a preflight check that refuses to start while
+`dist/` has no built plugin — without it, Docker would auto-create the missing mount source as a
+root-owned empty directory and Grafana would start "healthy" with no plugin loaded.
 
 Check `src/plugin.json` for the `grafanaDependency` value to know the minimum supported version (e.g. `>=12.3.0`).
 
@@ -300,7 +337,7 @@ services:
     ports:
       - '3000:3000'
     volumes:
-      - ./:/var/lib/grafana/plugins/questdb-questdb-datasource
+      - ./dist:/var/lib/grafana/plugins/questdb-questdb-datasource
       - ./provisioning:/etc/grafana/provisioning
     environment:
       - TERM=linux
@@ -321,6 +358,9 @@ Key environment variables:
 - `GF_SECURE_SOCKS_DATASOURCE_PROXY_SERVER_ENABLED=true` - enables the SOCKS proxy feature in Grafana
 - `GF_SECURE_SOCKS_DATASOURCE_PROXY_PROXY_ADDRESS=host.docker.internal:1080` - where microsocks is listening
 - `GF_SECURE_SOCKS_DATASOURCE_PROXY_ALLOW_INSECURE=true` - allows plain SOCKS5 (no TLS), needed for microsocks
+
+Build `dist/` before starting this stack, as in section 4.1. Mounting the repo root
+can expose both `src/plugin.json` and `dist/plugin.json` to Grafana's plugin scanner.
 
 ### 5.5 Start and test
 

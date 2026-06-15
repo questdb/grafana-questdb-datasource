@@ -26,6 +26,7 @@ export interface QuestDBConfig extends DataSourceJsonData {
   timeout?: number;
   queryTimeout?: number;
   enableSecureSocksProxy?: boolean;
+  disablePreparedStatements?: boolean | string;
   maxOpenConnections?: number;
   maxIdleConnections?: number;
   maxConnectionLifetime?: number;

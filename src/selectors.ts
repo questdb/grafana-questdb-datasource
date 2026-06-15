@@ -78,6 +78,14 @@ export const Components = {
       label: 'Enable Secure Socks Proxy',
       tooltip: 'Enable proxying the datasource connection through the secure socks proxy to a different network.',
     },
+    DisablePreparedStatements: {
+      label: 'Disable prepared statements',
+      tooltip:
+        'Send the dashboard time bounds as inline literals instead of bind parameters ($1, $2). ' +
+        'Enable this for QuestDB servers older than 8.3.0, which reject bind parameters. ' +
+        'When left off, the SQL text stays identical across refreshes and QuestDB can serve ' +
+        'repeated queries from its query plan cache.',
+    },
     MaxOpenConnections: {
       label: 'Max open',
       placeholder: '100',
