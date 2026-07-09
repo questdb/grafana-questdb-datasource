@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { ConfigEditor } from './QuestDBConfigEditor';
 import { mockConfigEditorProps } from '../__mocks__/ConfigEditor';
 import { Components } from './../selectors';
@@ -22,6 +22,27 @@ describe('ConfigEditor', () => {
     expect(screen.getByPlaceholderText(Components.ConfigEditor.Username.placeholder)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(Components.ConfigEditor.Password.placeholder)).toBeInTheDocument();
     expect(screen.getAllByText(Components.ConfigEditor.TlsMode.placeholder).length).toBeGreaterThan(0);
+    expect(screen.getByText(Components.ConfigEditor.DisablePreparedStatements.label)).toBeInTheDocument();
+    expect(screen.getByLabelText(Components.ConfigEditor.DisablePreparedStatements.label)).not.toBeChecked();
+  });
+  it('renders provisioned prepared-statement strings as booleans', () => {
+    const { rerender } = render(<ConfigEditor {...mockConfigEditorProps({ disablePreparedStatements: 'false' })} />);
+    expect(screen.getByLabelText(Components.ConfigEditor.DisablePreparedStatements.label)).not.toBeChecked();
+
+    rerender(<ConfigEditor {...mockConfigEditorProps({ disablePreparedStatements: 'true' })} />);
+    expect(screen.getByLabelText(Components.ConfigEditor.DisablePreparedStatements.label)).toBeChecked();
+  });
+  it('writes disablePreparedStatements as a boolean when toggled', () => {
+    const props = mockConfigEditorProps();
+    render(<ConfigEditor {...props} />);
+
+    fireEvent.click(screen.getByLabelText(Components.ConfigEditor.DisablePreparedStatements.label));
+
+    expect(props.onOptionsChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jsonData: expect.objectContaining({ disablePreparedStatements: true }),
+      })
+    );
   });
   it('with password', async () => {
     render(

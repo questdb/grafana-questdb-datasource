@@ -1,0 +1,126 @@
+name: E2E tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    # Monthly, to catch drift in grafana/questdb images (mirrors run-tests.yml).
+    - cron: '0 5 1 * *'
+
+jobs:
+  build:
+    name: Build plugin (frontend + linux backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'yarn'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install frontend dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build frontend
+        run: yarn build
+
+      - name: Build backend (linux)
+        uses: magefile/mage-action@v3
+        with:
+          version: latest
+          args: -v build:linux
+
+      - name: Upload built plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          # Long enough that "Re-run failed jobs" still finds the artifact days
+          # later (the build job is skipped on such re-runs).
+          retention-days: 7
+
+  playwright:
+    name: Playwright (QuestDB ${{ matrix.qdb_version }})
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 9.4.2 exercises the parameterized (bind) path with prepared statements on
+        # (the default); 8.0.3 predates pgwire bind support and runs with the
+        # "disable prepared statements" datasource opt-out, exercising the literal
+        # path. The same env both provisions the datasource (via docker compose) and
+        # tells the suite which path to assert.
+        include:
+          - qdb_version: '9.4.2'
+            disable_prepared_statements: 'false'
+          - qdb_version: '8.0.3'
+            disable_prepared_statements: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'yarn'
+
+      - name: Install frontend dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Download built plugin
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Restore backend binary permissions
+        # upload-artifact does not preserve the executable bit, and Grafana execs
+        # the backend binary from the mounted dist/.
+        run: chmod +x dist/gpx_questdb_*
+
+      - name: Start Grafana + QuestDB
+        run: docker compose up -d --wait
+        env:
+          QDB_VERSION: ${{ matrix.qdb_version }}
+          QDB_DISABLE_PREPARED_STATEMENTS: ${{ matrix.disable_prepared_statements }}
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('yarn.lock') }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: yarn playwright install --with-deps chromium
+
+      - name: Install Playwright OS dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: yarn playwright install-deps chromium
+
+      - name: Run e2e tests
+        run: yarn e2e
+        env:
+          QDB_DISABLE_PREPARED_STATEMENTS: ${{ matrix.disable_prepared_statements }}
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-questdb-${{ matrix.qdb_version }}
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Grafana logs on failure
+        if: failure()
+        run: docker compose logs grafana | tail -200

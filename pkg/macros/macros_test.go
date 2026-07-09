@@ -43,10 +43,11 @@ func TestMacroFromTimeFilter(t *testing.T) {
 		{want: "cast(1000 as timestamp)", from: "1970-01-01T00:00:00.001Z"},
 		{want: "cast(1705754096789000 as timestamp)", from: "2024-01-20T12:34:56.789Z"},
 	}
+	fromTime := macros.LiteralMacros()["fromTime"]
 	for i, tt := range tests {
 		t.Run("FromTimeFilterTest_"+strconv.FormatInt(int64(i), 10), func(t *testing.T) {
 			query.TimeRange.From, _ = time.Parse("2006-01-02T15:04:05.000Z", tt.from)
-			got, err := macros.FromTimeFilter(&query, []string{})
+			got, err := fromTime(&query, []string{})
 			if err != nil {
 				t.Errorf("macroFromTimeFilter error = %v", err)
 				return
@@ -71,10 +72,11 @@ func TestMacroToTimeFilter(t *testing.T) {
 		{want: "cast(1000 as timestamp)", to: "1970-01-01T00:00:00.001Z"},
 		{want: "cast(1705754096789000 as timestamp)", to: "2024-01-20T12:34:56.789Z"},
 	}
+	toTime := macros.LiteralMacros()["toTime"]
 	for i, tt := range tests {
-		t.Run("FromTimeFilterTest_"+strconv.FormatInt(int64(i), 10), func(t *testing.T) {
-			query.TimeRange.From, _ = time.Parse("2006-01-02T15:04:05.000Z", tt.to)
-			got, err := macros.FromTimeFilter(&query, []string{})
+		t.Run("ToTimeFilterTest_"+strconv.FormatInt(int64(i), 10), func(t *testing.T) {
+			query.TimeRange.To, _ = time.Parse("2006-01-02T15:04:05.000Z", tt.to)
+			got, err := toTime(&query, []string{})
 			if err != nil {
 				t.Errorf("macroToTimeFilter error = %v", err)
 				return
@@ -104,7 +106,7 @@ func TestMacroInterval1Millis(t *testing.T) {
 	}
 
 	for _, data := range tests {
-		t.Run("FromTimeFilterTest_"+data.expected, func(t *testing.T) {
+		t.Run("SampleByIntervalTest_"+data.expected, func(t *testing.T) {
 			query.Interval = time.Duration(data.input)
 			actual, err := macros.SampleByInterval(&query, []string{})
 			if err != nil {

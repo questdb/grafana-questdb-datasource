@@ -36,3 +36,8 @@ pkg/__debug_bin
 **/.DS_Store
 .eslintcache
 .levitate_output
+
+# Playwright e2e artifacts
+test-results/
+playwright-report/
+playwright/.auth/

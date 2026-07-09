@@ -2,11 +2,16 @@ apiVersion: 1
 datasources:
   - name: QuestDB-test
     type: questdb-questdb-datasource
+    uid: questdb-e2e
     jsonData:
       server: grafana-questdb-server
       port: 8812
       username: admin
       tlsMode: disable
+      # Interpolated from the grafana container's env (docker-compose.yml passes it
+      # through); unset/empty means the default — prepared statements on. Set to
+      # "true" for QuestDB servers older than 8.3.0, which reject bind parameters.
+      disablePreparedStatements: $QDB_DISABLE_PREPARED_STATEMENTS
       # timeout: <seconds>
       # queryTimeout: <seconds>
       maxOpenConnections: 100

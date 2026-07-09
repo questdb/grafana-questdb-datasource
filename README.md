@@ -131,23 +131,37 @@ To simplify syntax and to allow for dynamic parts, like date range filters, the 
 Here is an example of a query with a macro that will use Grafana's time filter:
 
 ```sql
-SELECT desginated_timestamp, data_stuff
+SELECT designated_timestamp, data_stuff
 FROM test_data
-WHERE $__timeFilter(desginated_timestamp)
+WHERE $__timeFilter(designated_timestamp)
 ```
 
 | Macro                                          | Description                                                                                                                                                                         | Output example                                                                                          |
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| _$\_\_timeFilter(columnName)_                  | Replaced by a conditional that filters the data (using the provided column) based on the time range of the panel in seconds                                                         | `timestamp >= cast(1706263425598000 as timestamp) AND timestamp <= cast(1706285057560000 as timestamp)` |
-| _$\_\_fromTime_                                | Replaced by the starting time of the range of the panel cast to timestamp                                                                                                           | `cast(1706263425598000 as timestamp)`                                                                   |
-| _$\_\_toTime_                                  | Replaced by the ending time of the range of the panel cast to timestamp                                                                                                             | `cast(1706285057560000 as timestamp)`                                                                   |
+| _$\_\_timeFilter(columnName)_                  | Replaced by a conditional that filters the data (using the provided column) based on the time range of the panel in seconds                                                         | `timestamp >= cast($1 as timestamp) AND timestamp <= cast($2 as timestamp)`                              |
+| _$\_\_fromTime_                                | Replaced by the starting time of the range of the panel cast to timestamp                                                                                                           | `cast($1 as timestamp)`                                                                                  |
+| _$\_\_toTime_                                  | Replaced by the ending time of the range of the panel cast to timestamp                                                                                                             | `cast($2 as timestamp)`                                                                                  |
 | _$\_\_sampleByInterval_                        | Replaced by the interval followed by unit: d, h, s or T (millisecond). Example: 1d, 5h, 20s, 1T.                                                                                    | `20s` (20 seconds) , `1T` (1 millisecond)                                                               |
 | _$\_\_conditionalAll(condition, $templateVar)_ | Replaced by the first parameter when the template variable in the second parameter does not select every value. Replaced by the 1=1 when the template variable selects every value. | `condition` or `1=1`                                                                                    |
+
+The time-bound macros (`$__timeFilter`, `$__fromTime`, `$__toTime`) bind the panel's time range as
+query parameters (epoch microseconds), so the SQL text stays identical across refreshes
+and QuestDB can serve repeated queries from its compiled-plan cache (requires QuestDB 8.3.0+ and
+`pg.select.cache.enabled=true`, the default). Multi-statement queries and queries containing a
+hand-written `$N` placeholder automatically fall back to inlining literal epoch values, e.g.
+`cast(1706263425598000 as timestamp)`. QuestDB servers older than 8.3.0 reject bind parameters:
+for those, turn on **Disable prepared statements** in the datasource settings to inline literals
+for all queries (the plugin logs a warning at connect time when it detects such a server). The
+placeholders are numbered `$1`, `$2`, ... in the order the time bounds appear in the query — the
+table's output examples show a typical query using both bounds; `$__toTime` on its own binds
+as `$1`.
 
 The plugin also supports notation using braces {}. Use this notation when queries are needed inside parameters.
 
 Additionally, Grafana has the built-in [`$__interval` macro][query-transform-data-query-options], which calculates an interval in seconds or milliseconds.
 It shouldn't be used with SAMPLE BY because of time unit incompatibility, 1ms vs 1T (expected by QuestDB). Use `$__sampleByInterval` instead.
+
+[query-transform-data-query-options]: https://grafana.com/docs/grafana/latest/panels-visualizations/query-transform-data/#query-options
 
 ### Templates and variables
 

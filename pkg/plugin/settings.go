@@ -27,6 +27,10 @@ type Settings struct {
 	MaxConnectionLifetime  int64  `json:"maxConnectionLifetime,omitempty"`
 	TimeInterval           string `json:"timeInterval,omitempty"`
 	EnableSecureSocksProxy bool   `json:"enableSecureSocksProxy,omitempty"`
+	// DisablePreparedStatements inlines the dashboard time bounds as literals instead
+	// of binding them as query parameters ($1, $2). Needed for QuestDB servers older
+	// than 8.3.0, which reject bind parameters; costs the compiled-plan-cache benefit.
+	DisablePreparedStatements bool `json:"disablePreparedStatements,omitempty"`
 
 	TlsMode             string `json:"tlsMode"`
 	ConfigurationMethod string `json:"tlsConfigurationMethod"`
@@ -137,6 +141,22 @@ func LoadSettings(config backend.DataSourceInstanceSettings) (settings Settings,
 
 	if jsonData["enableSecureSocksProxy"] != nil {
 		settings.EnableSecureSocksProxy = jsonData["enableSecureSocksProxy"].(bool)
+	}
+
+	if jsonData["disablePreparedStatements"] != nil {
+		switch val := jsonData["disablePreparedStatements"].(type) {
+		case bool:
+			settings.DisablePreparedStatements = val
+		case string:
+			// Provisioning env interpolation produces strings; an unset env var
+			// yields "" — treat it as the default (prepared statements on).
+			if val != "" {
+				settings.DisablePreparedStatements, err = strconv.ParseBool(val)
+				if err != nil {
+					return settings, fmt.Errorf("could not parse disablePreparedStatements value: %w", err)
+				}
+			}
+		}
 	}
 
 	if jsonData["maxOpenConnections"] != nil {

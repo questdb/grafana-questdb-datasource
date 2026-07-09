@@ -16,6 +16,13 @@ import { Divider } from 'components/Divider';
 
 export interface Props extends DataSourcePluginOptionsEditorProps<QuestDBConfig> {}
 
+const parseProvisionedBoolean = (value: boolean | string | undefined): boolean => {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return typeof value === 'string' && ['1', 't', 'true'].includes(value.toLowerCase());
+};
+
 export const ConfigEditor: React.FC<Props> = (props) => {
   const { options, onOptionsChange } = props;
   const { jsonData, secureJsonFields } = options;
@@ -41,7 +48,10 @@ export const ConfigEditor: React.FC<Props> = (props) => {
       },
     });
   };
-  const onSwitchToggle = (key: keyof Pick<QuestDBConfig, 'validate' | 'enableSecureSocksProxy'>, value: boolean) => {
+  const onSwitchToggle = (
+    key: keyof Pick<QuestDBConfig, 'validate' | 'enableSecureSocksProxy' | 'disablePreparedStatements'>,
+    value: boolean
+  ) => {
     onOptionsChange({
       ...options,
       jsonData: {
@@ -277,6 +287,22 @@ export const ConfigEditor: React.FC<Props> = (props) => {
         </Field>
       </ConfigSection>
 
+      <Divider />
+      <ConfigSection title="Prepared statements">
+        <Field
+          label={Components.ConfigEditor.DisablePreparedStatements.label}
+          description={Components.ConfigEditor.DisablePreparedStatements.tooltip}
+        >
+          <Switch
+            id="disablePreparedStatements"
+            className="gf-form"
+            value={parseProvisionedBoolean(jsonData.disablePreparedStatements)}
+            aria-label={Components.ConfigEditor.DisablePreparedStatements.label}
+            onChange={(e) => onSwitchToggle('disablePreparedStatements', e.currentTarget.checked)}
+          />
+        </Field>
+      </ConfigSection>
+
       {config.secureSocksDSProxyEnabled && gte(config.buildInfo.version, '10.0.0') && (
         <>
           <Divider />
@@ -300,7 +326,9 @@ export const ConfigEditor: React.FC<Props> = (props) => {
       <ConfigSection title="TLS / SSL Settings">
         <Field label={Components.ConfigEditor.TlsMode.label} description={Components.ConfigEditor.TlsMode.tooltip}>
           <Select
-            id="tlsMode"
+            // inputId (not id) puts the id on react-select's <input>, so Field's
+            // <label htmlFor> actually names the combobox (a11y + e2e getByLabel).
+            inputId="tlsMode"
             width={40}
             className="gf-form"
             options={tlsModes}
