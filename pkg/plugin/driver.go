@@ -3,6 +3,8 @@ package plugin
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -97,7 +99,26 @@ func (h *QuestDB) Connect(ctx context.Context, config backend.DataSourceInstance
 		}
 	}
 
-	db := sql.OpenDB(connector)
+	// When service-account routing is enabled, sqlds creates one pool per distinct
+	// connectionArgs. The message carries the service account stamped by MutateQueryData;
+	// we wrap the connector so each new physical connection assumes that account exactly
+	// once. The account's memory limit then applies to every query on this pool.
+	var conn driver.Connector = connector
+	if settings.ServiceAccountRoutingEnabled && len(message) > 0 {
+		var args connectionArgs
+		if err := json.Unmarshal(message, &args); err == nil && args.ServiceAccount != "" {
+			stmt, err := buildAssumeStatement(args.ServiceAccount)
+			if err != nil {
+				log.DefaultLogger.Error("QuestDB invalid service account name", "error", err)
+				return nil, err
+			}
+			conn = &assumeServiceAccountConnector{base: connector, stmt: stmt}
+			log.DefaultLogger.Debug("QuestDB service account routing enabled for pool",
+				"serviceAccount", args.ServiceAccount)
+		}
+	}
+
+	db := sql.OpenDB(conn)
 	db.SetMaxOpenConns(int(settings.MaxOpenConnections))
 	db.SetMaxIdleConns(int(settings.MaxIdleConnections))
 	db.SetConnMaxLifetime(time.Duration(settings.MaxConnectionLifetime) * time.Second)
@@ -248,10 +269,257 @@ func (h *QuestDB) MutateQuery(ctx context.Context, req backend.DataQuery) (conte
 	return ctx, req
 }
 
+// connectionArgs is the per-query routing payload carried in the query's connectionArgs
+// field. sqlds keys a separate connection pool per distinct connectionArgs value, which
+// is how we get one pool (and thus one ASSUME) per service account.
+type connectionArgs struct {
+	ServiceAccount string `json:"serviceAccount"`
+}
+
+// MutateQueryData resolves the requesting Grafana user to a service account (when
+// routing is enabled) and stamps it into every query's connectionArgs, so sqlds routes
+// the queries to the matching per-service-account connection pool. When routing is off,
+// or the user resolves to no service account, the request is returned unchanged and the
+// queries run on the default (base login) pool.
+func (h *QuestDB) MutateQueryData(ctx context.Context, req *backend.QueryDataRequest) (context.Context, *backend.QueryDataRequest) {
+	dsi := req.PluginContext.DataSourceInstanceSettings
+	if dsi == nil {
+		return ctx, req
+	}
+	// Resolve routing from non-secret jsonData only; this must not depend on credentials
+	// being present in the request's PluginContext.
+	settings := LoadServiceAccountSettings(*dsi)
+	if !settings.ServiceAccountRoutingEnabled {
+		return ctx, req
+	}
+	// When routing is enabled connectionArgs is plugin-owned: stamp the resolved account,
+	// or strip any client-supplied connectionArgs when the user resolves to no account, so
+	// the service account stays server-resolved from a verified identity and a query payload
+	// can never select its own account (and thus its own memory limit). The OIDC groups are
+	// pulled from the forwarded ID token lazily — resolveServiceAccount calls groupsFn only
+	// if it reaches the group step — so the (PII-bearing) token is never decoded for a user a
+	// username mapping already covers, nor when no group mappings are configured.
+	var connArgs json.RawMessage
+	groupsFn := func() []string {
+		return extractGroups(req.GetHTTPHeader(backend.OAuthIdentityIDTokenHeaderName), settings.GroupsClaim)
+	}
+	if sa := settings.resolveServiceAccountLazy(req.PluginContext.User, groupsFn); sa != "" {
+		marshaled, err := json.Marshal(connectionArgs{ServiceAccount: sa})
+		if err != nil {
+			// Marshaling a single validated string should never fail; if it somehow does,
+			// fall through with connArgs == nil so the client value is stripped (fail closed).
+			log.DefaultLogger.Error("QuestDB failed to marshal connectionArgs", "error", err)
+		} else {
+			connArgs = marshaled
+		}
+	}
+	for i := range req.Queries {
+		req.Queries[i].JSON = withConnectionArgs(req.Queries[i].JSON, connArgs)
+	}
+	return ctx, req
+}
+
+// withConnectionArgs sets the "connectionArgs" field of a query JSON object to connArgs,
+// preserving all other fields (rawSql, format, ...). A nil connArgs instead removes the
+// field — this is how a client-supplied value is stripped when the user resolves to no
+// service account (the field is left untouched when there is nothing to strip). On
+// malformed (non-object) JSON it returns the input unchanged.
+func withConnectionArgs(queryJSON, connArgs json.RawMessage) json.RawMessage {
+	m := map[string]json.RawMessage{}
+	// JSON `null` unmarshals into a nil map with no error; without the m == nil guard the
+	// m["connectionArgs"] assignment below would panic ("assignment to entry in nil map").
+	if err := json.Unmarshal(queryJSON, &m); err != nil || m == nil {
+		return queryJSON
+	}
+	if connArgs == nil {
+		if _, ok := m["connectionArgs"]; !ok {
+			return queryJSON // nothing to strip; leave the bytes untouched
+		}
+		delete(m, "connectionArgs")
+	} else {
+		m["connectionArgs"] = connArgs
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return queryJSON
+	}
+	return out
+}
+
+// assumeProbeTimeout bounds the routed health-check probe so a slow or hung ASSUME on a
+// misconfigured server cannot stall Save & Test indefinitely.
+const assumeProbeTimeout = 30 * time.Second
+
+// PostCheckHealth runs at Save & Test time, after sqlds has already verified base-login
+// connectivity against the default pool. That base check never exercises service-account
+// routing: it connects with no connectionArgs, so no ASSUME runs. A misconfiguration in
+// the routing path — a malformed account name, a missing
+// `GRANT ASSUME SERVICE ACCOUNT … TO <login>`, or a non-existent default account — would
+// therefore pass Save & Test and only surface later as a failure on every routed query.
+//
+// To close that gap, when routing is enabled this:
+//  1. validates every configured account name syntactically (cheap, no DB round-trip), and
+//  2. opens a routed pool for the default account and pings it, so the ASSUME actually runs
+//     against the live server.
+//
+// Per-user/per-group accounts are validated in step 1 but not live-probed: there is no
+// specific requesting user at config time, so only the default account is exercised
+// end-to-end. Returns nil (healthy) when routing is disabled or there is no default account
+// to probe; a non-nil error result fails Save & Test with an actionable message.
+func (h *QuestDB) PostCheckHealth(ctx context.Context, req *backend.CheckHealthRequest) *backend.CheckHealthResult {
+	dsi := req.PluginContext.DataSourceInstanceSettings
+	if dsi == nil {
+		return nil
+	}
+	// Parse directly (rather than via LoadServiceAccountSettings) so a malformed routing block
+	// is rejected here. A provisioned type mismatch unmarshals partially: the offending row is
+	// dropped/blanked, or — when the enable flag itself fails to parse — routing silently reads
+	// as "off". Either way the affected user would run on the uncapped base login with no
+	// signal, so it must fail Save & Test. Checked before the enabled short-circuit precisely
+	// to catch a mistyped enable flag. validateServiceAccountNames (below) cannot see a row the
+	// parser already dropped, so the raw parse error is surfaced too.
+	var settings Settings
+	if err := applyServiceAccountSettings(&settings, dsi.JSONData); err != nil {
+		return routingHealthError(fmt.Sprintf("could not parse routing configuration: %v", err))
+	}
+	if !settings.ServiceAccountRoutingEnabled {
+		return nil
+	}
+	if err := settings.validateServiceAccountNames(); err != nil {
+		return routingHealthError(err.Error())
+	}
+	sa := strings.TrimSpace(settings.DefaultServiceAccount)
+	if sa == "" {
+		// Only per-user/per-group mappings are configured; their names are validated above,
+		// but there is no default account to exercise end-to-end here.
+		return nil
+	}
+	msg, err := json.Marshal(connectionArgs{ServiceAccount: sa})
+	if err != nil {
+		return routingHealthError(err.Error())
+	}
+	db, err := h.Connect(ctx, *dsi, msg)
+	if err != nil {
+		return routingHealthError(err.Error())
+	}
+	defer db.Close()
+	// PingContext forces a physical connection, which is what actually runs the ASSUME via
+	// assumeServiceAccountConnector; a bare OpenDB is lazy and would prove nothing.
+	probeCtx, cancel := context.WithTimeout(ctx, assumeProbeTimeout)
+	defer cancel()
+	if err := db.PingContext(probeCtx); err != nil {
+		return routingHealthError(fmt.Sprintf(
+			"cannot assume the default service account %q: %v; ensure it exists and that the data source login has been granted ASSUME SERVICE ACCOUNT %s",
+			sa, err, sa))
+	}
+	return nil
+}
+
+// routingHealthError builds a failed health-check result tagged so the operator can tell the
+// failure came from the service-account routing probe rather than base connectivity.
+func routingHealthError(msg string) *backend.CheckHealthResult {
+	return &backend.CheckHealthResult{
+		Status:  backend.HealthStatusError,
+		Message: "Service-account routing: " + msg,
+	}
+}
+
+// extractGroups decodes the groups claim from a forwarded OAuth/OIDC ID token (the
+// X-Id-Token header that Grafana attaches when "Forward OAuth Identity" is on). The token
+// is injected by the Grafana server from the user's session, so it is trustworthy for
+// governance; per the design we read the claim WITHOUT verifying its signature or expiry
+// (which also sidesteps Grafana occasionally forwarding an expired token). It returns nil
+// — never an error — for a token that is absent, malformed, or whose claim is missing or
+// is neither a JSON string nor an array of strings, so resolution falls through to the
+// default account; a
+// present-but-unusable token is logged at Debug (an absent one is the normal no-forwarding
+// case and is not). The claim name defaults to "groups" (the Okta default) when not configured.
+func extractGroups(idToken, claim string) []string {
+	if idToken == "" {
+		return nil
+	}
+	if claim == "" {
+		claim = "groups"
+	}
+	// A JWT is header.payload.signature, each base64url-encoded; only the payload is needed.
+	// A present-but-unusable token (e.g. an encrypted 5-segment JWE, which some Okta/Azure
+	// setups issue) otherwise routes every group-mapped user to the default account silently;
+	// log the fallback at Debug so it is diagnosable. The messages omit the token, payload, and
+	// parse-error text, any of which can carry the token's contents.
+	parts := strings.Split(idToken, ".")
+	if len(parts) != 3 {
+		log.DefaultLogger.Debug("QuestDB ignoring forwarded ID token for group routing: not a 3-segment JWT (encrypted JWE tokens are unsupported); using default account", "segments", len(parts))
+		return nil
+	}
+	payload, err := decodeJWTSegment(parts[1])
+	if err != nil {
+		log.DefaultLogger.Debug("QuestDB ignoring forwarded ID token for group routing: payload is not valid base64url; using default account")
+		return nil
+	}
+	var claims map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		log.DefaultLogger.Debug("QuestDB ignoring forwarded ID token for group routing: payload is not valid JSON; using default account")
+		return nil
+	}
+	raw, ok := claims[claim]
+	if !ok {
+		log.DefaultLogger.Debug("QuestDB groups claim not present in forwarded ID token; using default account", "claim", claim)
+		return nil
+	}
+	var groups []string
+	if err := json.Unmarshal(raw, &groups); err == nil {
+		return groups
+	}
+	// Some IdPs serialize a single group as a scalar string ("groups":"Analysts") rather than
+	// a one-element array; accept that form too so those users still match a group mapping
+	// instead of silently falling through to the default account.
+	var single string
+	if err := json.Unmarshal(raw, &single); err == nil {
+		return []string{single}
+	}
+	log.DefaultLogger.Debug("QuestDB groups claim is neither a string nor an array of strings; using default account", "claim", claim)
+	return nil // claim present but not a string or string array
+}
+
+// decodeJWTSegment base64url-decodes a single JWT segment. JWT segments use canonical
+// unpadded base64url; TrimRight tolerates accidentally-padded variants too.
+func decodeJWTSegment(seg string) ([]byte, error) {
+	return base64.RawURLEncoding.DecodeString(strings.TrimRight(seg, "="))
+}
+
 // MutateResponse For any view other than traces we convert FieldTypeNullableJSON to string
 func (h *QuestDB) MutateResponse(ctx context.Context, res data.Frames) (data.Frames, error) {
 	return res, nil
 }
+
+// assumeServiceAccountConnector wraps a driver.Connector so that every new physical
+// connection runs `ASSUME SERVICE ACCOUNT <sa>` exactly once before it is used. Because
+// sqlds keeps one pool per service account, the ASSUME runs per connection (not per
+// query) and never leaks between Grafana users; the account's memory limit then applies
+// to every query on the pool.
+type assumeServiceAccountConnector struct {
+	base driver.Connector
+	stmt string
+}
+
+func (c *assumeServiceAccountConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.base.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	execer, ok := conn.(driver.ExecerContext)
+	if !ok {
+		_ = conn.Close()
+		return nil, fmt.Errorf("connection does not support ExecContext; cannot ASSUME SERVICE ACCOUNT")
+	}
+	if _, err := execer.ExecContext(ctx, c.stmt, nil); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("failed to assume service account: %w", err)
+	}
+	return conn, nil
+}
+
+func (c *assumeServiceAccountConnector) Driver() driver.Driver { return c.base.Driver() }
 
 // postgresProxyDialer implements the postgres dialer using a proxy dialer, as their functions differ slightly
 type postgresProxyDialer struct {

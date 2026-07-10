@@ -99,6 +99,47 @@ export const Components = {
       tooltip:
         'A lower limit for the auto-calculated interval used by $__sampleByInterval macro. Recommended to be set to write frequency, for example 1s if your data is written every second. Valid time identifiers are: ms, s, m, h, d',
     },
+    ServiceAccountRouting: {
+      label: 'Enable per-user service accounts',
+      tooltip:
+        'QuestDB Enterprise only. When enabled, each query runs ASSUME SERVICE ACCOUNT for the service account mapped to the requesting Grafana user, so the account\'s memory limit applies to that user\'s queries. The data source still authenticates with the credentials above.',
+    },
+    DefaultServiceAccount: {
+      label: 'Default service account',
+      placeholder: 'sa_default',
+      tooltip:
+        'Service account assumed for users without an explicit mapping and for backend-initiated queries (alerting, reporting). Leave empty to run unmapped users as the base login (no ASSUME).',
+    },
+    ServiceAccountMappings: {
+      label: 'User mappings',
+      tooltip:
+        'Maps a Grafana user login to a QuestDB service account. Point several users at the same service account to form a group. Matching is case-insensitive. Rows with a blank service account are ignored (the user falls back to the default).',
+      addLabel: 'Add mapping',
+      removeLabel: 'Remove service account mapping',
+      grafanaUserPlaceholder: 'Grafana user login',
+      serviceAccountPlaceholder: 'Service account',
+    },
+    ForwardOAuthIdentity: {
+      label: 'Forward OAuth Identity',
+      tooltip:
+        'Grafana\'s standard "Forward OAuth Identity" setting. Forwards the signed-in user\'s OAuth/OIDC ID token to the plugin, which reads the user\'s groups from it. Required for the group mappings below; user mappings and the default account work without it.',
+    },
+    ServiceAccountGroupMappings: {
+      label: 'Group mappings (OIDC)',
+      tooltip:
+        'Maps an OAuth/OIDC group (e.g. an Okta group from the ID token\'s "groups" claim) to a QuestDB service account. Requires "Forward OAuth Identity" enabled on this data source. A user mapping above takes precedence; when a user is in several mapped groups the first matching row (top-down) wins. Matching is case-insensitive; rows with a blank group or service account are ignored.',
+      addLabel: 'Add group mapping',
+      removeLabel: 'Remove group mapping',
+      groupPlaceholder: 'OIDC/Okta group',
+      serviceAccountPlaceholder: 'Service account',
+      forwardOAuthWarning:
+        'Group mappings require "Forward OAuth Identity" (above) to be enabled; without it the ID token is not forwarded and these group rows are ignored at query time.',
+    },
+    GroupsClaim: {
+      label: 'Groups claim',
+      placeholder: 'groups',
+      tooltip: 'Name of the ID-token claim that holds the user\'s groups. Defaults to "groups" (the Okta default) when left empty.',
+    },
   },
   QueryEditor: {
     CodeEditor: {
