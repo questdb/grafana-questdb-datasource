@@ -10,6 +10,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lib/pq"
@@ -28,7 +29,16 @@ import (
 )
 
 // QuestDB defines how to connect to a QuestDB datasource
-type QuestDB struct{}
+type QuestDB struct {
+	// routedPools holds the per-service-account pools handed to sqlds, keyed by account; see
+	// routedPool. The zero value is ready to use.
+	routedPoolsMu sync.Mutex
+	routedPools   map[string]*routedPoolEntry
+}
+
+type routedPoolEntry struct {
+	db *sql.DB
+}
 
 func getClientVersion(ctx context.Context) string {
 	result := ""
@@ -48,12 +58,79 @@ func getClientVersion(ctx context.Context) string {
 	return result
 }
 
+// Connect is the sqlds pool factory. sqlds calls it once for the default (base login) pool
+// with no message and, when service-account routing is enabled, again for each distinct
+// connectionArgs value on first use; the message then carries the service account stamped by
+// MutateQueryData.
 func (h *QuestDB) Connect(ctx context.Context, config backend.DataSourceInstanceSettings, message json.RawMessage) (*sql.DB, error) {
 	settings, err := LoadSettings(config)
 	if err != nil {
 		log.DefaultLogger.Debug("Invalid settings found", "error", err)
 		return nil, err
 	}
+	sa, err := routedServiceAccount(settings, message)
+	if err != nil {
+		return nil, err
+	}
+	if sa == "" {
+		return openDB(ctx, config, settings, "", nil)
+	}
+	return h.routedPool(ctx, config, settings, sa)
+}
+
+// routedServiceAccount returns the service account a pool opened for message must assume, or
+// "" for the base login pool. With routing enabled, connectionArgs is plugin-owned
+// (MutateQueryData stamps or strips it), so arguments that name no service account are refused
+// rather than opening a pool that silently runs as the base login.
+func routedServiceAccount(settings Settings, message json.RawMessage) (string, error) {
+	if !settings.ServiceAccountRoutingEnabled || len(message) == 0 {
+		return "", nil
+	}
+	var args connectionArgs
+	if err := json.Unmarshal(message, &args); err != nil || args.ServiceAccount == "" {
+		return "", fmt.Errorf("connection arguments do not name a service account")
+	}
+	return args.ServiceAccount, nil
+}
+
+// routedPool returns the pool for serviceAccount, opening it on first use. sqlds creates routed
+// pools with a non-atomic cache load, Connect and store, so concurrent first queries for one
+// account (a dashboard's panels firing together) all miss its cache and call Connect. Returning
+// one shared pool means every entry sqlds stores is that pool, which datasource disposal closes;
+// separate pools would overwrite each other in the sqlds cache and leak their connections.
+// Opening a pool does no I/O, so holding the lock across it is cheap.
+func (h *QuestDB) routedPool(ctx context.Context, config backend.DataSourceInstanceSettings, settings Settings, serviceAccount string) (*sql.DB, error) {
+	h.routedPoolsMu.Lock()
+	defer h.routedPoolsMu.Unlock()
+	if entry, ok := h.routedPools[serviceAccount]; ok {
+		return entry.db, nil
+	}
+	entry := &routedPoolEntry{}
+	// Forget the pool once it is closed (by disposal, or by a sqlds reconnect), so a later
+	// Connect opens a new pool instead of returning a closed one.
+	db, err := openDB(ctx, config, settings, serviceAccount, func() { h.forgetRoutedPool(serviceAccount, entry) })
+	if err != nil {
+		return nil, err
+	}
+	entry.db = db
+	if h.routedPools == nil {
+		h.routedPools = make(map[string]*routedPoolEntry)
+	}
+	h.routedPools[serviceAccount] = entry
+	return db, nil
+}
+
+func (h *QuestDB) forgetRoutedPool(serviceAccount string, entry *routedPoolEntry) {
+	h.routedPoolsMu.Lock()
+	defer h.routedPoolsMu.Unlock()
+	if h.routedPools[serviceAccount] == entry {
+		delete(h.routedPools, serviceAccount)
+	}
+}
+
+// openDB opens a new pool that logs in with settings and, when serviceAccount is not empty,
+// assumes it on every connection. onClose, if not nil, runs when a routed pool is closed.
+func openDB(ctx context.Context, config backend.DataSourceInstanceSettings, settings Settings, serviceAccount string, onClose func()) (*sql.DB, error) {
 	connstr, err := GenerateConnectionString(settings, getClientVersion(ctx))
 	if err != nil {
 		log.DefaultLogger.Error("QuestDB connection string generation failed", "error", err)
@@ -99,23 +176,19 @@ func (h *QuestDB) Connect(ctx context.Context, config backend.DataSourceInstance
 		}
 	}
 
-	// When service-account routing is enabled, sqlds creates one pool per distinct
-	// connectionArgs. The message carries the service account stamped by MutateQueryData;
-	// we wrap the connector so each new physical connection assumes that account exactly
-	// once. The account's memory limit then applies to every query on this pool.
+	// A routed pool wraps the connector so each connection assumes the service account, and
+	// assumes it again whenever the pool reuses the connection. The account's memory limit
+	// then applies to every query on this pool.
 	var conn driver.Connector = connector
-	if settings.ServiceAccountRoutingEnabled && len(message) > 0 {
-		var args connectionArgs
-		if err := json.Unmarshal(message, &args); err == nil && args.ServiceAccount != "" {
-			stmt, err := buildAssumeStatement(args.ServiceAccount)
-			if err != nil {
-				log.DefaultLogger.Error("QuestDB invalid service account name", "error", err)
-				return nil, err
-			}
-			conn = &assumeServiceAccountConnector{base: connector, stmt: stmt}
-			log.DefaultLogger.Debug("QuestDB service account routing enabled for pool",
-				"serviceAccount", args.ServiceAccount)
+	if serviceAccount != "" {
+		stmt, err := buildAssumeStatement(serviceAccount)
+		if err != nil {
+			log.DefaultLogger.Error("QuestDB invalid service account name", "error", err)
+			return nil, err
 		}
+		conn = &assumeServiceAccountConnector{base: connector, stmt: stmt, onClose: onClose}
+		log.DefaultLogger.Debug("QuestDB service account routing enabled for pool",
+			"serviceAccount", serviceAccount)
 	}
 
 	db := sql.OpenDB(conn)
@@ -319,6 +392,9 @@ func (h *QuestDB) MutateQueryData(ctx context.Context, req *backend.QueryDataReq
 	return ctx, req
 }
 
+// connectionArgsKey is the query JSON field sqlds reads connection arguments from.
+const connectionArgsKey = "connectionArgs"
+
 // withConnectionArgs sets the "connectionArgs" field of a query JSON object to connArgs,
 // preserving all other fields (rawSql, format, ...). A nil connArgs instead removes the
 // field — this is how a client-supplied value is stripped when the user resolves to no
@@ -327,17 +403,25 @@ func (h *QuestDB) MutateQueryData(ctx context.Context, req *backend.QueryDataReq
 func withConnectionArgs(queryJSON, connArgs json.RawMessage) json.RawMessage {
 	m := map[string]json.RawMessage{}
 	// JSON `null` unmarshals into a nil map with no error; without the m == nil guard the
-	// m["connectionArgs"] assignment below would panic ("assignment to entry in nil map").
+	// m[connectionArgsKey] assignment below would panic ("assignment to entry in nil map").
 	if err := json.Unmarshal(queryJSON, &m); err != nil || m == nil {
 		return queryJSON
 	}
-	if connArgs == nil {
-		if _, ok := m["connectionArgs"]; !ok {
-			return queryJSON // nothing to strip; leave the bytes untouched
+	// sqlds decodes the query with encoding/json, which matches a field name to any key equal
+	// under strings.EqualFold, and the last such key wins. Stripping only the exact spelling
+	// would let a client-supplied "connectionargs" override the resolved account, so remove
+	// every key that decodes as connectionArgs.
+	stripped := false
+	for k := range m {
+		if strings.EqualFold(k, connectionArgsKey) {
+			delete(m, k)
+			stripped = true
 		}
-		delete(m, "connectionArgs")
-	} else {
-		m["connectionArgs"] = connArgs
+	}
+	if connArgs != nil {
+		m[connectionArgsKey] = connArgs
+	} else if !stripped {
+		return queryJSON // nothing to strip; leave the bytes untouched
 	}
 	out, err := json.Marshal(m)
 	if err != nil {
@@ -396,11 +480,13 @@ func (h *QuestDB) PostCheckHealth(ctx context.Context, req *backend.CheckHealthR
 		// but there is no default account to exercise end-to-end here.
 		return nil
 	}
-	msg, err := json.Marshal(connectionArgs{ServiceAccount: sa})
+	fullSettings, err := LoadSettings(*dsi)
 	if err != nil {
 		return routingHealthError(err.Error())
 	}
-	db, err := h.Connect(ctx, *dsi, msg)
+	// A dedicated pool rather than routedPool: the probe closes it, and must not close the
+	// pool that queries for the same account share.
+	db, err := openDB(ctx, *dsi, fullSettings, sa, nil)
 	if err != nil {
 		return routingHealthError(err.Error())
 	}
@@ -495,13 +581,27 @@ func (h *QuestDB) MutateResponse(ctx context.Context, res data.Frames) (data.Fra
 }
 
 // assumeServiceAccountConnector wraps a driver.Connector so that every new physical
-// connection runs `ASSUME SERVICE ACCOUNT <sa>` exactly once before it is used. Because
-// sqlds keeps one pool per service account, the ASSUME runs per connection (not per
-// query) and never leaks between Grafana users; the account's memory limit then applies
-// to every query on the pool.
+// connection runs `ASSUME SERVICE ACCOUNT <sa>` before it is used, and runs it again each
+// time the pool reuses the connection (see assumedConn.ResetSession). sqlds keeps one pool
+// per service account, so every query on the pool runs under that account's memory limit.
 type assumeServiceAccountConnector struct {
-	base driver.Connector
-	stmt string
+	base    driver.Connector
+	stmt    string
+	onClose func()
+}
+
+// pgConn is the set of lib/pq connection interfaces that database/sql uses. The wrapper
+// around a routed connection must keep all of them: hiding QueryerContext, for example,
+// would silently move every query onto the prepared-statement path.
+type pgConn interface {
+	driver.Conn
+	driver.ConnBeginTx
+	driver.ConnPrepareContext
+	driver.ExecerContext
+	driver.QueryerContext
+	driver.Pinger
+	driver.SessionResetter
+	driver.Validator
 }
 
 func (c *assumeServiceAccountConnector) Connect(ctx context.Context) (driver.Conn, error) {
@@ -509,19 +609,53 @@ func (c *assumeServiceAccountConnector) Connect(ctx context.Context) (driver.Con
 	if err != nil {
 		return nil, err
 	}
-	execer, ok := conn.(driver.ExecerContext)
+	pc, ok := conn.(pgConn)
 	if !ok {
 		_ = conn.Close()
-		return nil, fmt.Errorf("connection does not support ExecContext; cannot ASSUME SERVICE ACCOUNT")
+		return nil, fmt.Errorf("connection does not support the interfaces required to ASSUME SERVICE ACCOUNT")
 	}
-	if _, err := execer.ExecContext(ctx, c.stmt, nil); err != nil {
-		_ = conn.Close()
+	if _, err := pc.ExecContext(ctx, c.stmt, nil); err != nil {
+		_ = pc.Close()
 		return nil, fmt.Errorf("failed to assume service account: %w", err)
 	}
-	return conn, nil
+	return &assumedConn{pgConn: pc, stmt: c.stmt}, nil
 }
 
 func (c *assumeServiceAccountConnector) Driver() driver.Driver { return c.base.Driver() }
+
+// Close is called by sql.DB.Close.
+func (c *assumeServiceAccountConnector) Close() error {
+	if c.onClose != nil {
+		c.onClose()
+	}
+	return nil
+}
+
+// assumedConn is a pooled connection that has assumed a service account.
+type assumedConn struct {
+	pgConn
+	stmt string
+}
+
+// ResetSession assumes the service account again before the pool hands the connection to
+// its next user. The assumed account is session state that SQL can change: `EXIT SERVICE
+// ACCOUNT` reverts to the base login and another ASSUME switches accounts, while lib/pq's own
+// reset only reports a broken connection. Without this, later users of the connection would
+// inherit that identity and its memory limit. QuestDB authorizes ASSUME against the login's
+// own grants, not the currently assumed account, so it is safe to repeat without an EXIT.
+//
+// Any failure returns driver.ErrBadConn, as database/sql uses the connection anyway on other
+// errors. The pool then discards it and opens a new connection, whose Connect reports why the
+// ASSUME failed (e.g. a revoked grant).
+func (c *assumedConn) ResetSession(ctx context.Context) error {
+	if err := c.pgConn.ResetSession(ctx); err != nil {
+		return driver.ErrBadConn
+	}
+	if _, err := c.pgConn.ExecContext(ctx, c.stmt, nil); err != nil {
+		return driver.ErrBadConn
+	}
+	return nil
+}
 
 // postgresProxyDialer implements the postgres dialer using a proxy dialer, as their functions differ slightly
 type postgresProxyDialer struct {

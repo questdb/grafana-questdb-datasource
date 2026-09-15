@@ -30,15 +30,10 @@ func newDatasource(ctx context.Context, settings backend.DataSourceInstanceSetti
 	// distinct pools is bounded by the configured service accounts. ForwardHeaders is
 	// intentionally left off so HTTP headers are not folded into the pool cache key.
 	//
-	// Caveat (upstream, not plugin-fixable): enabling multiple connections activates a race
-	// in sqlds Connector.GetConnectionFromQuery — a non-atomic load→Connect→store on a
-	// sync.Map (no LoadOrStore). Concurrent first-use of the same service account (e.g. a
-	// dashboard whose panels fire together for a freshly-mapped user) can open several pools
-	// and orphan all but the last; Dispose only closes pools still in the map, so the losers
-	// leak their connections. The window is one-time per account per instance (subsequent
-	// uses hit the cache). To shrink it, favor a small set of group-mapped accounts over many
-	// per-user accounts, and set a connection max-lifetime so any orphaned idle connection is
-	// eventually reaped rather than held for the life of the process.
+	// sqlds Connector.GetConnectionFromQuery creates pools with a non-atomic
+	// load→Connect→store, so concurrent first use of an account calls Connect several times.
+	// driver.Connect returns one shared pool per account to all of them, so no pool is
+	// orphaned outside the sqlds cache that Dispose closes.
 	ds.EnableMultipleConnections = plugin.LoadServiceAccountSettings(settings).ServiceAccountRoutingEnabled
 	// Base Save & Test only checks base-login connectivity. PostCheckHealth additionally
 	// exercises the routing path (validates configured account names and runs a real ASSUME

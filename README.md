@@ -167,7 +167,12 @@ service account). The same can be provisioned via `jsonData`:
 
 This is resource governance, not a hard security boundary: the SQL editor lets a user run
 arbitrary SQL, including `EXIT SERVICE ACCOUNT <serviceAccount>;`, so set a memory limit on
-the base login too and grant it only the service accounts used here. Note that one
+the base login too and grant it only the service accounts used here. Such a statement does not
+outlive the query that runs it: before reusing a pooled connection, the plugin runs `ASSUME
+SERVICE ACCOUNT` again (one extra round trip per query on a reused connection). Queries that
+run as the base login (unmapped users when no default service account is set) get no such
+reset, so an `ASSUME` in one of them carries over to later base-login queries on that
+connection; set a default service account to route every query. Note that one
 connection pool is created per active service account. `maxOpenConnections` applies **per
 pool** and defaults to `0` (unlimited), so with routing on the footprint is one unlimited
 pool per active account, not the single pool used when routing is off. Set

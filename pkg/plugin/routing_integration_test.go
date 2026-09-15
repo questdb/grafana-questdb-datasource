@@ -171,6 +171,27 @@ func TestServiceAccountRoutingIntegration(t *testing.T) {
 		_, err = conn.ExecContext(ctx, heavy)
 		requireMemoryLimitError(t, err, "after EXIT the capped base login's limit should apply")
 	})
+
+	t.Run("a connection released after EXIT runs its next user's query under the service account", func(t *testing.T) {
+		// EXIT changes the session, not just the query that ran it. The pool holds one
+		// connection and keeps it idle, so the second user provably borrows the session the
+		// first user EXITed; the plugin must assume the account again before that reuse.
+		setLimits(t, "1K", "UNLIMITED")
+		routed := routedConnectionWithConfig(t, base, sa, `,"maxOpenConnections":1,"maxIdleConnections":1`)
+		defer routed.Close()
+
+		conn, err := routed.Conn(ctx)
+		require.NoError(t, err)
+		_, err = conn.ExecContext(ctx, fmt.Sprintf("EXIT SERVICE ACCOUNT %s", sa))
+		require.NoError(t, err)
+		_, err = conn.ExecContext(ctx, heavy)
+		require.NoError(t, err, "after EXIT the rest of the session runs as the unlimited base login")
+		require.NoError(t, conn.Close())
+
+		_, err = routed.ExecContext(ctx, heavy)
+		requireMemoryLimitError(t, err, "the next user of the released connection must run under the service account's limit")
+		assert.Equal(t, 1, routed.Stats().OpenConnections)
+	})
 }
 
 // TestPostCheckHealthRoutingIntegration verifies review #1's fix end-to-end against a
@@ -317,10 +338,17 @@ func healthCheckRequest(t *testing.T, login routingLogin, defaultSA string) *bac
 // message. Every physical connection in the returned pool logs in as login and assumes sa.
 func routedConnection(t *testing.T, login routingLogin, sa string) *sql.DB {
 	t.Helper()
+	return routedConnectionWithConfig(t, login, sa, "")
+}
+
+// routedConnectionWithConfig is routedConnection with extraJSON appended to the data source's
+// jsonData, as in routingTestConfig.
+func routedConnectionWithConfig(t *testing.T, login routingLogin, sa, extraJSON string) *sql.DB {
+	t.Helper()
 	msg, err := json.Marshal(map[string]string{"serviceAccount": sa})
 	require.NoError(t, err)
 
-	db, err := (&plugin.QuestDB{}).Connect(context.Background(), routingTestConfig(t, login, ""), msg)
+	db, err := (&plugin.QuestDB{}).Connect(context.Background(), routingTestConfig(t, login, extraJSON), msg)
 	require.NoError(t, err)
 	return db
 }

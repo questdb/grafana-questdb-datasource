@@ -2,13 +2,20 @@ package plugin
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
+	"maps"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/sqlds/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -406,38 +413,135 @@ func TestBuildAssumeStatement(t *testing.T) {
 
 // --- fakes for the connector wrapper ---
 
+const fakeBaseLogin = "baseuser"
+
+// fakeConnector opens fakeSessions logged in as fakeBaseLogin, or returns conn when set.
 type fakeConnector struct {
 	conn       driver.Conn
 	connectErr error
+
+	mu        sync.Mutex
+	assumeErr error // returned by ASSUME on every session, e.g. after a revoked grant
+	opened    []*fakeSession
 }
 
 func (c *fakeConnector) Connect(_ context.Context) (driver.Conn, error) {
 	if c.connectErr != nil {
 		return nil, c.connectErr
 	}
-	return c.conn, nil
+	if c.conn != nil {
+		return c.conn, nil
+	}
+	s := &fakeSession{server: c, identity: fakeBaseLogin}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.opened = append(c.opened, s)
+	return s, nil
 }
+
 func (c *fakeConnector) Driver() driver.Driver { return nil }
 
-// execerConn implements driver.Conn and driver.ExecerContext, recording the statement.
-type execerConn struct {
-	lastQuery string
-	closed    bool
-	execErr   error
+func (c *fakeConnector) setAssumeErr(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.assumeErr = err
 }
 
-func (c *execerConn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("not implemented") }
-func (c *execerConn) Close() error                        { c.closed = true; return nil }
-func (c *execerConn) Begin() (driver.Tx, error)           { return nil, errors.New("not implemented") }
-func (c *execerConn) ExecContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Result, error) {
-	c.lastQuery = query
-	if c.execErr != nil {
-		return nil, c.execErr
+func (c *fakeConnector) openedSessions() []*fakeSession {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]*fakeSession(nil), c.opened...)
+}
+
+// fakeSession is a stateful stand-in for a lib/pq connection to QuestDB. ASSUME and EXIT
+// change the identity that `SELECT current_user()` reports, as they do on the server, and
+// ResetSession, like lib/pq's, does not restore it.
+type fakeSession struct {
+	server *fakeConnector
+
+	mu       sync.Mutex
+	identity string
+	execs    []string
+	closed   bool
+}
+
+var _ pgConn = (*fakeSession)(nil)
+
+func (s *fakeSession) Prepare(string) (driver.Stmt, error) { return nil, errors.New("not implemented") }
+func (s *fakeSession) Begin() (driver.Tx, error)           { return nil, errors.New("not implemented") }
+func (s *fakeSession) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
+	return nil, errors.New("not implemented")
+}
+func (s *fakeSession) PrepareContext(context.Context, string) (driver.Stmt, error) {
+	return nil, errors.New("not implemented")
+}
+func (s *fakeSession) Ping(context.Context) error         { return nil }
+func (s *fakeSession) ResetSession(context.Context) error { return nil }
+func (s *fakeSession) IsValid() bool                      { return !s.isClosed() }
+
+func (s *fakeSession) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+	return nil
+}
+
+func (s *fakeSession) isClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
+}
+
+func (s *fakeSession) executed() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.execs...)
+}
+
+func (s *fakeSession) ExecContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Result, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.execs = append(s.execs, query)
+	if account, ok := strings.CutPrefix(query, "ASSUME SERVICE ACCOUNT "); ok {
+		s.server.mu.Lock()
+		err := s.server.assumeErr
+		s.server.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		s.identity = strings.Trim(account, `"`)
+	} else if strings.HasPrefix(query, "EXIT SERVICE ACCOUNT ") {
+		s.identity = fakeBaseLogin
 	}
 	return driver.RowsAffected(0), nil
 }
 
-// plainConn implements only driver.Conn (no ExecerContext).
+func (s *fakeSession) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	if query != "SELECT current_user()" {
+		return nil, errors.New("not implemented")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return &singleValueRows{value: s.identity}, nil
+}
+
+type singleValueRows struct {
+	value string
+	done  bool
+}
+
+func (r *singleValueRows) Columns() []string { return []string{"current_user"} }
+func (r *singleValueRows) Close() error      { return nil }
+func (r *singleValueRows) Next(dest []driver.Value) error {
+	if r.done {
+		return io.EOF
+	}
+	r.done = true
+	dest[0] = r.value
+	return nil
+}
+
+// plainConn implements only driver.Conn.
 type plainConn struct{ closed bool }
 
 func (c *plainConn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("not implemented") }
@@ -447,31 +551,37 @@ func (c *plainConn) Begin() (driver.Tx, error)           { return nil, errors.Ne
 func TestAssumeServiceAccountConnector(t *testing.T) {
 	const stmt = `ASSUME SERVICE ACCOUNT "sa_a"`
 
-	t.Run("runs ASSUME once and returns the conn", func(t *testing.T) {
-		fc := &execerConn{}
-		asc := &assumeServiceAccountConnector{base: &fakeConnector{conn: fc}, stmt: stmt}
+	t.Run("runs ASSUME and returns the wrapped conn", func(t *testing.T) {
+		fc := &fakeConnector{}
+		asc := &assumeServiceAccountConnector{base: fc, stmt: stmt}
 		got, err := asc.Connect(context.Background())
 		require.NoError(t, err)
-		assert.Same(t, fc, got)
-		assert.Equal(t, stmt, fc.lastQuery)
-		assert.False(t, fc.closed)
+		sessions := fc.openedSessions()
+		require.Len(t, sessions, 1)
+		wrapped, ok := got.(*assumedConn)
+		require.True(t, ok, "a routed connection must be wrapped so reuse re-assumes the account")
+		assert.Same(t, sessions[0], wrapped.pgConn)
+		assert.Equal(t, []string{stmt}, sessions[0].executed())
+		assert.False(t, sessions[0].isClosed())
 	})
 
 	t.Run("closes conn and propagates exec error", func(t *testing.T) {
-		fc := &execerConn{execErr: errors.New("boom")}
-		asc := &assumeServiceAccountConnector{base: &fakeConnector{conn: fc}, stmt: stmt}
+		fc := &fakeConnector{assumeErr: errors.New("boom")}
+		asc := &assumeServiceAccountConnector{base: fc, stmt: stmt}
 		_, err := asc.Connect(context.Background())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to assume service account")
-		assert.True(t, fc.closed)
+		assert.Contains(t, err.Error(), "boom")
+		require.Len(t, fc.openedSessions(), 1)
+		assert.True(t, fc.openedSessions()[0].isClosed())
 	})
 
-	t.Run("errors when conn lacks ExecContext", func(t *testing.T) {
+	t.Run("errors when conn lacks the lib/pq interfaces", func(t *testing.T) {
 		pc := &plainConn{}
 		asc := &assumeServiceAccountConnector{base: &fakeConnector{conn: pc}, stmt: stmt}
 		_, err := asc.Connect(context.Background())
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "does not support ExecContext")
+		assert.Contains(t, err.Error(), "does not support the interfaces required")
 		assert.True(t, pc.closed)
 	})
 
@@ -480,6 +590,89 @@ func TestAssumeServiceAccountConnector(t *testing.T) {
 		_, err := asc.Connect(context.Background())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "dial fail")
+	})
+
+	t.Run("closing the pool runs onClose", func(t *testing.T) {
+		calls := 0
+		db := sql.OpenDB(&assumeServiceAccountConnector{base: &fakeConnector{}, stmt: stmt, onClose: func() { calls++ }})
+		require.NoError(t, db.Close())
+		require.NoError(t, db.Close())
+		assert.Equal(t, 1, calls)
+	})
+}
+
+// TestAssumedConnectionReuse drives the connector wrapper through database/sql pooling: a
+// session's identity can be changed by the SQL a user runs, and must not carry over to the
+// next user the pool hands the same connection to.
+func TestAssumedConnectionReuse(t *testing.T) {
+	const account = "sa_analysts"
+	ctx := context.Background()
+
+	// newPool returns a one-connection pool that keeps its connection idle between uses, so
+	// every checkout after the first reuses the same session.
+	newPool := func(t *testing.T) (*sql.DB, *fakeConnector) {
+		t.Helper()
+		fc := &fakeConnector{}
+		stmt, err := buildAssumeStatement(account)
+		require.NoError(t, err)
+		db := sql.OpenDB(&assumeServiceAccountConnector{base: fc, stmt: stmt})
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
+		t.Cleanup(func() { _ = db.Close() })
+		return db, fc
+	}
+	currentUser := func(t *testing.T, q interface {
+		QueryRowContext(context.Context, string, ...any) *sql.Row
+	}) string {
+		t.Helper()
+		var who string
+		require.NoError(t, q.QueryRowContext(ctx, "SELECT current_user()").Scan(&who))
+		return who
+	}
+
+	for _, tc := range []struct {
+		name    string
+		userSQL string
+		leftAs  string
+	}{
+		{name: "EXIT reverts to the base login", userSQL: "EXIT SERVICE ACCOUNT " + account, leftAs: fakeBaseLogin},
+		{name: "ASSUME switches to another account", userSQL: `ASSUME SERVICE ACCOUNT "sa_other"`, leftAs: "sa_other"},
+	} {
+		t.Run(tc.name+", then the next user of the connection gets the pool's account", func(t *testing.T) {
+			db, fc := newPool(t)
+
+			// User A changes the session identity on a pinned connection, then releases it.
+			conn, err := db.Conn(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, account, currentUser(t, conn))
+			_, err = conn.ExecContext(ctx, tc.userSQL)
+			require.NoError(t, err)
+			assert.Equal(t, tc.leftAs, currentUser(t, conn), "the change applies to the rest of user A's session")
+			require.NoError(t, conn.Close())
+
+			// User B, mapped to the same account, borrows the same physical connection.
+			assert.Equal(t, account, currentUser(t, db))
+			require.Len(t, fc.openedSessions(), 1, "the identity must be restored on the reused connection, not by reconnecting")
+		})
+	}
+
+	t.Run("a failed re-ASSUME discards the connection and reports why", func(t *testing.T) {
+		db, fc := newPool(t)
+		assert.Equal(t, account, currentUser(t, db))
+
+		fc.setAssumeErr(errors.New("User cannot assume service account"))
+		var who string
+		err := db.QueryRowContext(ctx, "SELECT current_user()").Scan(&who)
+		require.Error(t, err, "a connection that could not re-assume must not run the query as whatever identity it holds")
+		assert.Contains(t, err.Error(), "failed to assume service account")
+		assert.Contains(t, err.Error(), "User cannot assume service account")
+		sessions := fc.openedSessions()
+		require.Len(t, sessions, 2)
+		assert.True(t, sessions[0].isClosed(), "the connection that failed to re-assume must be discarded")
+
+		// Once ASSUME succeeds again, the pool recovers with a fresh connection.
+		fc.setAssumeErr(nil)
+		assert.Equal(t, account, currentUser(t, db))
 	})
 }
 
@@ -671,6 +864,71 @@ func TestMutateQueryData(t *testing.T) {
 	})
 }
 
+// TestMutateQueryDataConnectionArgsAsDecoded checks the connection arguments sqlds actually
+// receives: the mutated query is decoded with sqlds.GetQuery, the same decoder the query path
+// uses, which matches the connectionArgs field case-insensitively.
+func TestMutateQueryDataConnectionArgsAsDecoded(t *testing.T) {
+	h := &QuestDB{}
+	ctx := context.Background()
+	mapped := mutateDSI(`"serviceAccountRoutingEnabled": true, "defaultServiceAccount": "sa_default",
+		"serviceAccountMappings": [{ "grafanaUser": "john", "serviceAccount": "sa_analysts" }]`)
+	noDefault := mutateDSI(`"serviceAccountRoutingEnabled": true,
+		"serviceAccountMappings": [{ "grafanaUser": "john", "serviceAccount": "sa_analysts" }]`)
+
+	users := []struct {
+		name string
+		dsi  *backend.DataSourceInstanceSettings
+		user *backend.User
+		want string // "" means no connection arguments (the base login pool)
+	}{
+		{name: "mapped user", dsi: mapped, user: &backend.User{Login: "john"}, want: `{"serviceAccount":"sa_analysts"}`},
+		{name: "unmapped user falling back to the default", dsi: mapped, user: &backend.User{Login: "nobody"}, want: `{"serviceAccount":"sa_default"}`},
+		{name: "unmapped user with no default", dsi: noDefault, user: &backend.User{Login: "nobody"}, want: ""},
+	}
+	payloads := []struct {
+		name string
+		json string
+	}{
+		{name: "no client arguments", json: `{"rawSql":"select 1"}`},
+		{name: "exact key", json: `{"rawSql":"select 1","connectionArgs":{"serviceAccount":"sa_chosen_by_client"}}`},
+		{name: "lower-case key", json: `{"rawSql":"select 1","connectionargs":{"serviceAccount":"sa_chosen_by_client"}}`},
+		{name: "upper-case key", json: `{"rawSql":"select 1","CONNECTIONARGS":{"serviceAccount":"sa_chosen_by_client"}}`},
+		// U+017F (long s) folds to 's' under the Unicode simple folding encoding/json uses.
+		{name: "Unicode case-folded key", json: `{"rawSql":"select 1","connectionArgſ":{"serviceAccount":"sa_chosen_by_client"}}`},
+		{name: "key behind the exact one", json: `{"rawSql":"select 1","connectionArgs":{"serviceAccount":"sa_x"},"connectionargs":{"serviceAccount":"sa_chosen_by_client"}}`},
+		{name: "empty arguments", json: `{"rawSql":"select 1","connectionargs":{}}`},
+		{name: "null arguments", json: `{"rawSql":"select 1","ConnectionArgs":null}`},
+	}
+
+	for _, u := range users {
+		for _, p := range payloads {
+			t.Run(u.name+", "+p.name, func(t *testing.T) {
+				in := backend.DataQuery{RefID: "A", JSON: []byte(p.json)}
+				if p.name != "no client arguments" {
+					// Guard the premise: unsanitized, sqlds would honor the client's arguments.
+					q, err := sqlds.GetQuery(in, nil, false)
+					require.NoError(t, err)
+					require.NotEmpty(t, q.ConnectionArgs)
+				}
+
+				req := &backend.QueryDataRequest{
+					PluginContext: backend.PluginContext{DataSourceInstanceSettings: u.dsi, User: u.user},
+					Queries:       []backend.DataQuery{in},
+				}
+				_, out := h.MutateQueryData(ctx, req)
+				q, err := sqlds.GetQuery(out.Queries[0], nil, false)
+				require.NoError(t, err)
+				assert.Equal(t, "select 1", q.RawSQL)
+				if u.want == "" {
+					assert.Empty(t, q.ConnectionArgs)
+				} else {
+					assert.JSONEq(t, u.want, string(q.ConnectionArgs))
+				}
+			})
+		}
+	}
+}
+
 func TestWithConnectionArgs(t *testing.T) {
 	connArgs := json.RawMessage(`{"serviceAccount":"sa_a"}`)
 
@@ -724,6 +982,50 @@ func TestWithConnectionArgs(t *testing.T) {
 		in := json.RawMessage(`{"rawSql":"select 1","format":1}`)
 		assert.Equal(t, string(in), string(withConnectionArgs(in, nil)))
 	})
+
+	t.Run("removes every case variant of connectionArgs", func(t *testing.T) {
+		in := json.RawMessage(`{"rawSql":"select 1","connectionArgs":{"serviceAccount":"a"},"connectionargs":{"serviceAccount":"b"},"CONNECTIONARGS":{}}`)
+
+		var stamped map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(withConnectionArgs(in, connArgs), &stamped))
+		assert.Equal(t, []string{"connectionArgs", "rawSql"}, slices.Sorted(maps.Keys(stamped)))
+		assert.JSONEq(t, `{"serviceAccount":"sa_a"}`, string(stamped["connectionArgs"]))
+
+		var stripped map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(withConnectionArgs(in, nil), &stripped))
+		assert.Equal(t, []string{"rawSql"}, slices.Sorted(maps.Keys(stripped)))
+	})
+}
+
+func TestRoutedServiceAccount(t *testing.T) {
+	routing := Settings{serviceAccountConfig: serviceAccountConfig{ServiceAccountRoutingEnabled: true}}
+
+	t.Run("no message selects the base login pool", func(t *testing.T) {
+		for _, msg := range []json.RawMessage{nil, {}} {
+			sa, err := routedServiceAccount(routing, msg)
+			require.NoError(t, err)
+			assert.Equal(t, "", sa)
+		}
+	})
+
+	t.Run("routing disabled ignores the message", func(t *testing.T) {
+		sa, err := routedServiceAccount(Settings{}, json.RawMessage(`{"serviceAccount":"sa_a"}`))
+		require.NoError(t, err)
+		assert.Equal(t, "", sa)
+	})
+
+	t.Run("returns the stamped service account", func(t *testing.T) {
+		sa, err := routedServiceAccount(routing, json.RawMessage(`{"serviceAccount":"sa_a"}`))
+		require.NoError(t, err)
+		assert.Equal(t, "sa_a", sa)
+	})
+
+	t.Run("refuses arguments that name no service account", func(t *testing.T) {
+		for _, msg := range []string{`{}`, `{"serviceAccount":""}`, `null`, `{"serviceAccount":1}`, `not json`} {
+			_, err := routedServiceAccount(routing, json.RawMessage(msg))
+			assert.Error(t, err, msg)
+		}
+	})
 }
 
 func TestConnectServiceAccountWrapping(t *testing.T) {
@@ -755,6 +1057,141 @@ func TestConnectServiceAccountWrapping(t *testing.T) {
 		require.NotNil(t, db)
 		_ = db.Close()
 	})
+
+	t.Run("arguments without a service account are refused", func(t *testing.T) {
+		db, err := (&QuestDB{}).Connect(context.Background(), cfg, json.RawMessage(`{}`))
+		require.Error(t, err)
+		assert.Nil(t, db)
+	})
+}
+
+// TestRoutedPoolSharing covers pool ownership for routed pools: Connect must hand every caller
+// asking for one account the same pool, since sqlds may call it several times for one cache key.
+func TestRoutedPoolSharing(t *testing.T) {
+	ctx := context.Background()
+	cfg := backend.DataSourceInstanceSettings{
+		JSONData: []byte(`{"server":"127.0.0.1","port":1,"username":"u","tlsMode":"disable","timeout":"1",` +
+			`"serviceAccountRoutingEnabled":true,"defaultServiceAccount":"sa_a"}`),
+		DecryptedSecureJSONData: map[string]string{"password": "p"},
+	}
+	msg := func(t *testing.T, sa string) json.RawMessage {
+		t.Helper()
+		m, err := json.Marshal(connectionArgs{ServiceAccount: sa})
+		require.NoError(t, err)
+		return m
+	}
+	isClosed := func(db *sql.DB) bool {
+		// A closed pool fails fast without dialing; an open one fails to reach port 1.
+		err := db.PingContext(ctx)
+		return err != nil && err.Error() == "sql: database is closed"
+	}
+
+	t.Run("concurrent first use of an account shares one pool", func(t *testing.T) {
+		h := &QuestDB{}
+		const callers = 8
+		dbs := make([]*sql.DB, callers)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range dbs {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				db, err := h.Connect(ctx, cfg, msg(t, "sa_a"))
+				assert.NoError(t, err)
+				dbs[i] = db
+			}()
+		}
+		close(start)
+		wg.Wait()
+		for _, db := range dbs {
+			assert.Same(t, dbs[0], db)
+		}
+
+		other, err := h.Connect(ctx, cfg, msg(t, "sa_b"))
+		require.NoError(t, err)
+		assert.NotSame(t, dbs[0], other, "each account gets its own pool")
+		_ = dbs[0].Close()
+		_ = other.Close()
+	})
+
+	t.Run("a closed pool is replaced rather than handed out again", func(t *testing.T) {
+		h := &QuestDB{}
+		first, err := h.Connect(ctx, cfg, msg(t, "sa_a"))
+		require.NoError(t, err)
+		require.NoError(t, first.Close())
+
+		second, err := h.Connect(ctx, cfg, msg(t, "sa_a"))
+		require.NoError(t, err)
+		defer second.Close()
+		assert.NotSame(t, first, second)
+		assert.False(t, isClosed(second))
+	})
+
+	t.Run("the health probe does not close the pool queries share", func(t *testing.T) {
+		h := &QuestDB{}
+		shared, err := h.Connect(ctx, cfg, msg(t, "sa_a"))
+		require.NoError(t, err)
+		defer shared.Close()
+
+		res := h.PostCheckHealth(ctx, &backend.CheckHealthRequest{PluginContext: backend.PluginContext{DataSourceInstanceSettings: &cfg}})
+		require.NotNil(t, res, "the unreachable server fails the probe")
+		assert.False(t, isClosed(shared))
+		again, err := h.Connect(ctx, cfg, msg(t, "sa_a"))
+		require.NoError(t, err)
+		assert.Same(t, shared, again)
+	})
+
+	t.Run("through sqlds, concurrent first use opens one pool and disposal closes it", func(t *testing.T) {
+		// barrierDriver holds every routed Connect until all callers have arrived, so each of
+		// them has provably missed the sqlds cache before any pool is stored in it.
+		const callers = 8
+		d := &barrierDriver{QuestDB: &QuestDB{}, start: make(chan struct{})}
+		d.arrived.Add(callers)
+		ds := sqlds.NewDatasource(d)
+		ds.EnableMultipleConnections = true
+		_, err := ds.NewDatasource(ctx, cfg)
+		require.NoError(t, err)
+
+		dbs := make([]*sql.DB, callers)
+		var wg sync.WaitGroup
+		for i := range dbs {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				db, err := ds.GetDBFromQuery(ctx, &sqlds.Query{ConnectionArgs: msg(t, "sa_a")})
+				assert.NoError(t, err)
+				dbs[i] = db
+			}()
+		}
+		d.arrived.Wait()
+		close(d.start)
+		wg.Wait()
+
+		for _, db := range dbs {
+			require.NotNil(t, db)
+			assert.Same(t, dbs[0], db, "every caller must get the one pool sqlds keeps for the account")
+		}
+		assert.False(t, isClosed(dbs[0]))
+		ds.Dispose()
+		for _, db := range dbs {
+			assert.True(t, isClosed(db), "disposal must close every pool that was handed out")
+		}
+	})
+}
+
+type barrierDriver struct {
+	*QuestDB
+	arrived sync.WaitGroup
+	start   chan struct{}
+}
+
+func (d *barrierDriver) Connect(ctx context.Context, config backend.DataSourceInstanceSettings, message json.RawMessage) (*sql.DB, error) {
+	if len(message) > 0 {
+		d.arrived.Done()
+		<-d.start
+	}
+	return d.QuestDB.Connect(ctx, config, message)
 }
 
 // TestValidateServiceAccountNames verifies review #2's fix: configured service-account names
