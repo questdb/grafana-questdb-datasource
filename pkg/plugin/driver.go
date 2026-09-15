@@ -31,10 +31,16 @@ import (
 // QuestDB defines how to connect to a QuestDB datasource
 type QuestDB struct {
 	// routedPools holds the per-service-account pools handed to sqlds, keyed by account; see
-	// routedPool. The zero value is ready to use.
+	// routedPool. disposed is set by Dispose, after which no routed pool is opened. The zero
+	// value is ready to use.
 	routedPoolsMu sync.Mutex
 	routedPools   map[string]*routedPoolEntry
+	disposed      bool
 }
+
+// errDisposed is returned for a routed query that needs a new pool after its data source instance
+// was disposed, for instance when a configuration change replaced the instance mid-query.
+var errDisposed = errors.New("QuestDB data source instance has been disposed")
 
 type routedPoolEntry struct {
 	db *sql.DB
@@ -98,10 +104,14 @@ func routedServiceAccount(settings Settings, message json.RawMessage) (string, e
 // account (a dashboard's panels firing together) all miss its cache and call Connect. Returning
 // one shared pool means every entry sqlds stores is that pool, which datasource disposal closes;
 // separate pools would overwrite each other in the sqlds cache and leak their connections.
+// sqlds may also store a pool after its disposal, so the driver owns routed pools; see Dispose.
 // Opening a pool does no I/O, so holding the lock across it is cheap.
 func (h *QuestDB) routedPool(ctx context.Context, config backend.DataSourceInstanceSettings, settings Settings, serviceAccount string) (*sql.DB, error) {
 	h.routedPoolsMu.Lock()
 	defer h.routedPoolsMu.Unlock()
+	if h.disposed {
+		return nil, errDisposed
+	}
 	if entry, ok := h.routedPools[serviceAccount]; ok {
 		return entry.db, nil
 	}
@@ -125,6 +135,21 @@ func (h *QuestDB) forgetRoutedPool(serviceAccount string, entry *routedPoolEntry
 	defer h.routedPoolsMu.Unlock()
 	if h.routedPools[serviceAccount] == entry {
 		delete(h.routedPools, serviceAccount)
+	}
+}
+
+// Dispose closes the routed pools the driver has opened and stops it from opening more. sqlds
+// stores a pool in its cache only after Connect returns it, so its own Dispose misses a pool that
+// a query opens concurrently; the data source's Dispose calls this too so that pool is closed.
+func (h *QuestDB) Dispose() {
+	h.routedPoolsMu.Lock()
+	h.disposed = true
+	pools := h.routedPools
+	h.routedPools = nil
+	h.routedPoolsMu.Unlock()
+	// Close outside the lock: closing a pool calls forgetRoutedPool, which takes it.
+	for _, entry := range pools {
+		_ = entry.db.Close()
 	}
 }
 

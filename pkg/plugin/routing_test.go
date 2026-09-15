@@ -1182,15 +1182,16 @@ func TestRoutedPoolSharing(t *testing.T) {
 	})
 
 	t.Run("through sqlds, concurrent first use opens one pool and disposal closes it", func(t *testing.T) {
-		// barrierDriver holds every routed Connect until all callers have arrived, so each of
-		// them has provably missed the sqlds cache before any pool is stored in it.
+		// The hook holds every routed Connect until all callers have arrived, so each of them
+		// has provably missed the sqlds cache before any pool is stored in it.
 		const callers = 8
-		d := &barrierDriver{QuestDB: &QuestDB{}, start: make(chan struct{})}
-		d.arrived.Add(callers)
-		ds := sqlds.NewDatasource(d)
-		ds.EnableMultipleConnections = true
-		_, err := ds.NewDatasource(ctx, cfg)
-		require.NoError(t, err)
+		var arrived sync.WaitGroup
+		arrived.Add(callers)
+		start := make(chan struct{})
+		ds := newHookedDatasource(t, cfg, func() {
+			arrived.Done()
+			<-start
+		}, nil)
 
 		dbs := make([]*sql.DB, callers)
 		var wg sync.WaitGroup
@@ -1203,8 +1204,8 @@ func TestRoutedPoolSharing(t *testing.T) {
 				dbs[i] = db
 			}()
 		}
-		d.arrived.Wait()
-		close(d.start)
+		arrived.Wait()
+		close(start)
 		wg.Wait()
 
 		for _, db := range dbs {
@@ -1217,20 +1218,87 @@ func TestRoutedPoolSharing(t *testing.T) {
 			assert.True(t, isClosed(db), "disposal must close every pool that was handed out")
 		}
 	})
+
+	// The disposal tests pause a query inside sqlds' pool creation, dispose the instance, and
+	// then let the query finish; sqlds' own Dispose runs before the query stores its pool.
+	t.Run("disposal closes a pool opened but not yet stored by sqlds", func(t *testing.T) {
+		opened, resume := make(chan struct{}), make(chan struct{})
+		ds := newHookedDatasource(t, cfg, nil, func() {
+			close(opened)
+			<-resume
+		})
+		got := make(chan *sql.DB, 1)
+		go func() {
+			db, err := ds.GetDBFromQuery(ctx, &sqlds.Query{ConnectionArgs: msg(t, "sa_a")})
+			assert.NoError(t, err)
+			got <- db
+		}()
+		<-opened
+		ds.Dispose()
+		close(resume)
+		db := <-got
+		require.NotNil(t, db)
+		defer db.Close() // only releases the pool if the assertion below fails
+		assert.True(t, isClosed(db), "disposal must close a pool sqlds stores after it")
+	})
+
+	t.Run("disposal refuses a pool that a query opens after it", func(t *testing.T) {
+		missed, resume := make(chan struct{}), make(chan struct{})
+		ds := newHookedDatasource(t, cfg, func() {
+			close(missed)
+			<-resume
+		}, nil)
+		type result struct {
+			db  *sql.DB
+			err error
+		}
+		got := make(chan result, 1)
+		go func() {
+			db, err := ds.GetDBFromQuery(ctx, &sqlds.Query{ConnectionArgs: msg(t, "sa_a")})
+			got <- result{db, err}
+		}()
+		<-missed
+		ds.Dispose()
+		close(resume)
+		res := <-got
+		if res.db != nil {
+			defer res.db.Close()
+		}
+		assert.ErrorIs(t, res.err, errDisposed)
+		assert.Nil(t, res.db)
+		assert.Empty(t, ds.qdb.routedPools)
+	})
 }
 
-type barrierDriver struct {
+// newHookedDatasource creates a data source whose driver runs before and after, when not nil,
+// around each routed Connect. The instance is disposed when the test ends.
+func newHookedDatasource(t *testing.T, cfg backend.DataSourceInstanceSettings, before, after func()) *datasource {
+	t.Helper()
+	qdb := &QuestDB{}
+	inst, err := newDatasource(context.Background(), cfg, &hookDriver{QuestDB: qdb, before: before, after: after}, qdb)
+	require.NoError(t, err)
+	ds := inst.(*datasource)
+	t.Cleanup(ds.Dispose)
+	return ds
+}
+
+type hookDriver struct {
 	*QuestDB
-	arrived sync.WaitGroup
-	start   chan struct{}
+	before, after func()
 }
 
-func (d *barrierDriver) Connect(ctx context.Context, config backend.DataSourceInstanceSettings, message json.RawMessage) (*sql.DB, error) {
-	if len(message) > 0 {
-		d.arrived.Done()
-		<-d.start
+func (d *hookDriver) Connect(ctx context.Context, config backend.DataSourceInstanceSettings, message json.RawMessage) (*sql.DB, error) {
+	if len(message) == 0 {
+		return d.QuestDB.Connect(ctx, config, message)
 	}
-	return d.QuestDB.Connect(ctx, config, message)
+	if d.before != nil {
+		d.before()
+	}
+	db, err := d.QuestDB.Connect(ctx, config, message)
+	if d.after != nil {
+		d.after()
+	}
+	return db, err
 }
 
 // TestValidateServiceAccountNames verifies review #2's fix: configured service-account names
