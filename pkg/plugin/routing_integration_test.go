@@ -192,6 +192,58 @@ func TestServiceAccountRoutingIntegration(t *testing.T) {
 		requireMemoryLimitError(t, err, "the next user of the released connection must run under the service account's limit")
 		assert.Equal(t, 1, routed.Stats().OpenConnections)
 	})
+
+	t.Run("current_user() differs from session_user() exactly while an account is assumed", func(t *testing.T) {
+		// The base login pool relies on this to detect a connection a query left assuming an
+		// account. A clean session must compare equal, or every reuse would reconnect.
+		identity := func(t *testing.T, q interface {
+			QueryRowContext(context.Context, string, ...any) *sql.Row
+		}) (current, session string) {
+			t.Helper()
+			require.NoError(t, q.QueryRowContext(ctx, "SELECT current_user(), session_user()").Scan(&current, &session))
+			return current, session
+		}
+
+		current, session := identity(t, admin)
+		assert.Equal(t, current, session, "the built-in admin's clean session")
+
+		unrouted := baseConnection(t, base)
+		defer unrouted.Close()
+		conn, err := unrouted.Conn(ctx)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		current, session = identity(t, conn)
+		assert.Equal(t, []string{base.username, base.username}, []string{current, session})
+		_, err = conn.ExecContext(ctx, fmt.Sprintf("ASSUME SERVICE ACCOUNT %s", sa))
+		require.NoError(t, err)
+		current, session = identity(t, conn)
+		assert.Equal(t, []string{sa, base.username}, []string{current, session})
+		_, err = conn.ExecContext(ctx, fmt.Sprintf("EXIT SERVICE ACCOUNT %s", sa))
+		require.NoError(t, err)
+		current, session = identity(t, conn)
+		assert.Equal(t, []string{base.username, base.username}, []string{current, session})
+	})
+
+	t.Run("a base login connection released while assuming an account runs its next query as the login", func(t *testing.T) {
+		// Unrouted queries (unmapped users with no default account) share the base login pool,
+		// where raw SQL can ASSUME an account the login is granted. With one pooled connection,
+		// the next query would inherit that account unless the pool drops the connection.
+		setLimits(t, "1K", "UNLIMITED")
+		unrouted := baseConnectionWithConfig(t, base, `,"maxOpenConnections":1,"maxIdleConnections":1`)
+		defer unrouted.Close()
+
+		conn, err := unrouted.Conn(ctx)
+		require.NoError(t, err)
+		_, err = conn.ExecContext(ctx, fmt.Sprintf("ASSUME SERVICE ACCOUNT %s", sa))
+		require.NoError(t, err)
+		_, err = conn.ExecContext(ctx, heavy)
+		requireMemoryLimitError(t, err, "after ASSUME the rest of the session runs under the account's limit")
+		require.NoError(t, conn.Close())
+
+		_, err = unrouted.ExecContext(ctx, heavy)
+		require.NoError(t, err, "the next query on the base login pool must run as the unlimited login")
+	})
 }
 
 // TestPostCheckHealthRoutingIntegration verifies review #1's fix end-to-end against a
@@ -357,7 +409,14 @@ func routedConnectionWithConfig(t *testing.T, login routingLogin, sa, extraJSON 
 // as login and assumes nothing, even though routing is enabled on the data source.
 func baseConnection(t *testing.T, login routingLogin) *sql.DB {
 	t.Helper()
-	db, err := (&plugin.QuestDB{}).Connect(context.Background(), routingTestConfig(t, login, ""), nil)
+	return baseConnectionWithConfig(t, login, "")
+}
+
+// baseConnectionWithConfig is baseConnection with extraJSON appended to the data source's
+// jsonData, as in routingTestConfig.
+func baseConnectionWithConfig(t *testing.T, login routingLogin, extraJSON string) *sql.DB {
+	t.Helper()
+	db, err := (&plugin.QuestDB{}).Connect(context.Background(), routingTestConfig(t, login, extraJSON), nil)
 	require.NoError(t, err)
 	return db
 }

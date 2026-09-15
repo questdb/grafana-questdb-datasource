@@ -176,19 +176,23 @@ func openDB(ctx context.Context, config backend.DataSourceInstanceSettings, sett
 		}
 	}
 
-	// A routed pool wraps the connector so each connection assumes the service account, and
-	// assumes it again whenever the pool reuses the connection. The account's memory limit
-	// then applies to every query on this pool.
+	// With routing enabled, every pool pins the identity its connections run as, since SQL
+	// can ASSUME or EXIT a service account on a session the pool later hands to another user.
+	// A routed pool's connections assume the service account, so its memory limit applies to
+	// every query on the pool; a base login pool's connections must not keep an assumed one.
+	// Routing-disabled pools are left as they were.
 	var conn driver.Connector = connector
-	if serviceAccount != "" {
+	if settings.ServiceAccountRoutingEnabled || serviceAccount != "" {
 		stmt, err := buildAssumeStatement(serviceAccount)
 		if err != nil {
 			log.DefaultLogger.Error("QuestDB invalid service account name", "error", err)
 			return nil, err
 		}
-		conn = &assumeServiceAccountConnector{base: connector, stmt: stmt, onClose: onClose}
-		log.DefaultLogger.Debug("QuestDB service account routing enabled for pool",
-			"serviceAccount", serviceAccount)
+		conn = &sessionConnector{base: connector, assume: stmt, onClose: onClose}
+		if serviceAccount != "" {
+			log.DefaultLogger.Debug("QuestDB service account routing enabled for pool",
+				"serviceAccount", serviceAccount)
+		}
 	}
 
 	db := sql.OpenDB(conn)
@@ -492,7 +496,7 @@ func (h *QuestDB) PostCheckHealth(ctx context.Context, req *backend.CheckHealthR
 	}
 	defer db.Close()
 	// PingContext forces a physical connection, which is what actually runs the ASSUME via
-	// assumeServiceAccountConnector; a bare OpenDB is lazy and would prove nothing.
+	// sessionConnector; a bare OpenDB is lazy and would prove nothing.
 	probeCtx, cancel := context.WithTimeout(ctx, assumeProbeTimeout)
 	defer cancel()
 	if err := db.PingContext(probeCtx); err != nil {
@@ -580,19 +584,20 @@ func (h *QuestDB) MutateResponse(ctx context.Context, res data.Frames) (data.Fra
 	return res, nil
 }
 
-// assumeServiceAccountConnector wraps a driver.Connector so that every new physical
-// connection runs `ASSUME SERVICE ACCOUNT <sa>` before it is used, and runs it again each
-// time the pool reuses the connection (see assumedConn.ResetSession). sqlds keeps one pool
-// per service account, so every query on the pool runs under that account's memory limit.
-type assumeServiceAccountConnector struct {
+// sessionConnector wraps the connector of a pool on a routing-enabled data source so that
+// each connection runs as the identity the pool stands for, including when the pool reuses a
+// connection whose previous user's SQL ran ASSUME or EXIT SERVICE ACCOUNT (see
+// sessionConn.ResetSession). For a routed pool, assume holds the `ASSUME SERVICE ACCOUNT`
+// statement that every new connection runs; for the base login pool it is empty.
+type sessionConnector struct {
 	base    driver.Connector
-	stmt    string
+	assume  string
 	onClose func()
 }
 
 // pgConn is the set of lib/pq connection interfaces that database/sql uses. The wrapper
-// around a routed connection must keep all of them: hiding QueryerContext, for example,
-// would silently move every query onto the prepared-statement path.
+// around a connection must keep all of them: hiding QueryerContext, for example, would
+// silently move every query onto the prepared-statement path.
 type pgConn interface {
 	driver.Conn
 	driver.ConnBeginTx
@@ -604,7 +609,7 @@ type pgConn interface {
 	driver.Validator
 }
 
-func (c *assumeServiceAccountConnector) Connect(ctx context.Context) (driver.Conn, error) {
+func (c *sessionConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	conn, err := c.base.Connect(ctx)
 	if err != nil {
 		return nil, err
@@ -612,49 +617,86 @@ func (c *assumeServiceAccountConnector) Connect(ctx context.Context) (driver.Con
 	pc, ok := conn.(pgConn)
 	if !ok {
 		_ = conn.Close()
-		return nil, fmt.Errorf("connection does not support the interfaces required to ASSUME SERVICE ACCOUNT")
+		return nil, fmt.Errorf("connection does not support the interfaces required for service account routing")
 	}
-	if _, err := pc.ExecContext(ctx, c.stmt, nil); err != nil {
-		_ = pc.Close()
-		return nil, fmt.Errorf("failed to assume service account: %w", err)
+	if c.assume != "" {
+		if _, err := pc.ExecContext(ctx, c.assume, nil); err != nil {
+			_ = pc.Close()
+			return nil, fmt.Errorf("failed to assume service account: %w", err)
+		}
 	}
-	return &assumedConn{pgConn: pc, stmt: c.stmt}, nil
+	return &sessionConn{pgConn: pc, assume: c.assume}, nil
 }
 
-func (c *assumeServiceAccountConnector) Driver() driver.Driver { return c.base.Driver() }
+func (c *sessionConnector) Driver() driver.Driver { return c.base.Driver() }
 
 // Close is called by sql.DB.Close.
-func (c *assumeServiceAccountConnector) Close() error {
+func (c *sessionConnector) Close() error {
 	if c.onClose != nil {
 		c.onClose()
 	}
 	return nil
 }
 
-// assumedConn is a pooled connection that has assumed a service account.
-type assumedConn struct {
+type sessionConn struct {
 	pgConn
-	stmt string
+	assume string
 }
 
-// ResetSession assumes the service account again before the pool hands the connection to
-// its next user. The assumed account is session state that SQL can change: `EXIT SERVICE
-// ACCOUNT` reverts to the base login and another ASSUME switches accounts, while lib/pq's own
-// reset only reports a broken connection. Without this, later users of the connection would
-// inherit that identity and its memory limit. QuestDB authorizes ASSUME against the login's
-// own grants, not the currently assumed account, so it is safe to repeat without an EXIT.
+// ResetSession restores the pool's identity before the pool hands the connection to its next
+// user. The assumed service account is session state that SQL can change: EXIT reverts to the
+// base login and ASSUME switches accounts, while lib/pq's own reset only reports a broken
+// connection. Without this, later users of the connection would inherit that identity, with
+// its permissions and memory limit.
+//
+// A routed connection simply assumes its account again: QuestDB authorizes ASSUME against the
+// login's own grants, not the currently assumed account, so it is safe to repeat without an
+// EXIT. A base login connection is checked instead, as there is no statement that drops an
+// account whose name is unknown; one still assuming an account is discarded.
 //
 // Any failure returns driver.ErrBadConn, as database/sql uses the connection anyway on other
-// errors. The pool then discards it and opens a new connection, whose Connect reports why the
-// ASSUME failed (e.g. a revoked grant).
-func (c *assumedConn) ResetSession(ctx context.Context) error {
+// errors. The pool then discards it and opens a new connection, whose Connect reports why a
+// routed connection's ASSUME failed (e.g. a revoked grant).
+func (c *sessionConn) ResetSession(ctx context.Context) error {
 	if err := c.pgConn.ResetSession(ctx); err != nil {
 		return driver.ErrBadConn
 	}
-	if _, err := c.pgConn.ExecContext(ctx, c.stmt, nil); err != nil {
+	if c.assume != "" {
+		if _, err := c.pgConn.ExecContext(ctx, c.assume, nil); err != nil {
+			return driver.ErrBadConn
+		}
+		return nil
+	}
+	assumed, err := assumesServiceAccount(ctx, c.pgConn)
+	if err != nil || assumed {
 		return driver.ErrBadConn
 	}
 	return nil
+}
+
+// assumesServiceAccount reports whether the session runs as an identity other than its login.
+// current_user() is the principal permissions are checked against, which ASSUME replaces with
+// the service account, while session_user() stays the login; QuestDB itself tells an assumed
+// session apart the same way.
+func assumesServiceAccount(ctx context.Context, conn driver.QueryerContext) (bool, error) {
+	rows, err := conn.QueryContext(ctx, "SELECT current_user(), session_user()", nil)
+	if err != nil {
+		return false, err
+	}
+	dest := make([]driver.Value, 2)
+	err = rows.Next(dest)
+	if closeErr := rows.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return false, err
+	}
+	current, ok1 := dest[0].(string)
+	session, ok2 := dest[1].(string)
+	if !ok1 || !ok2 {
+		return false, fmt.Errorf("unexpected session identity types %T, %T", dest[0], dest[1])
+	}
+	return current != session, nil
 }
 
 // postgresProxyDialer implements the postgres dialer using a proxy dialer, as their functions differ slightly

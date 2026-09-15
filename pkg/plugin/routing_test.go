@@ -517,27 +517,31 @@ func (s *fakeSession) ExecContext(_ context.Context, query string, _ []driver.Na
 }
 
 func (s *fakeSession) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
-	if query != "SELECT current_user()" {
-		return nil, errors.New("not implemented")
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return &singleValueRows{value: s.identity}, nil
+	switch query {
+	case "SELECT current_user()":
+		return &oneRow{columns: []string{"current_user"}, values: []driver.Value{s.identity}}, nil
+	case "SELECT current_user(), session_user()":
+		return &oneRow{columns: []string{"current_user", "session_user"}, values: []driver.Value{s.identity, fakeBaseLogin}}, nil
+	}
+	return nil, errors.New("not implemented")
 }
 
-type singleValueRows struct {
-	value string
-	done  bool
+type oneRow struct {
+	columns []string
+	values  []driver.Value
+	done    bool
 }
 
-func (r *singleValueRows) Columns() []string { return []string{"current_user"} }
-func (r *singleValueRows) Close() error      { return nil }
-func (r *singleValueRows) Next(dest []driver.Value) error {
+func (r *oneRow) Columns() []string { return r.columns }
+func (r *oneRow) Close() error      { return nil }
+func (r *oneRow) Next(dest []driver.Value) error {
 	if r.done {
 		return io.EOF
 	}
 	r.done = true
-	dest[0] = r.value
+	copy(dest, r.values)
 	return nil
 }
 
@@ -548,27 +552,36 @@ func (c *plainConn) Prepare(string) (driver.Stmt, error) { return nil, errors.Ne
 func (c *plainConn) Close() error                        { c.closed = true; return nil }
 func (c *plainConn) Begin() (driver.Tx, error)           { return nil, errors.New("not implemented") }
 
-func TestAssumeServiceAccountConnector(t *testing.T) {
+func TestSessionConnector(t *testing.T) {
 	const stmt = `ASSUME SERVICE ACCOUNT "sa_a"`
 
-	t.Run("runs ASSUME and returns the wrapped conn", func(t *testing.T) {
+	t.Run("routed pool runs ASSUME and returns the wrapped conn", func(t *testing.T) {
 		fc := &fakeConnector{}
-		asc := &assumeServiceAccountConnector{base: fc, stmt: stmt}
-		got, err := asc.Connect(context.Background())
+		sc := &sessionConnector{base: fc, assume: stmt}
+		got, err := sc.Connect(context.Background())
 		require.NoError(t, err)
 		sessions := fc.openedSessions()
 		require.Len(t, sessions, 1)
-		wrapped, ok := got.(*assumedConn)
-		require.True(t, ok, "a routed connection must be wrapped so reuse re-assumes the account")
+		wrapped, ok := got.(*sessionConn)
+		require.True(t, ok, "a connection must be wrapped so its identity is restored on reuse")
 		assert.Same(t, sessions[0], wrapped.pgConn)
 		assert.Equal(t, []string{stmt}, sessions[0].executed())
 		assert.False(t, sessions[0].isClosed())
 	})
 
+	t.Run("base login pool assumes nothing", func(t *testing.T) {
+		fc := &fakeConnector{}
+		got, err := (&sessionConnector{base: fc}).Connect(context.Background())
+		require.NoError(t, err)
+		require.IsType(t, &sessionConn{}, got)
+		require.Len(t, fc.openedSessions(), 1)
+		assert.Empty(t, fc.openedSessions()[0].executed())
+	})
+
 	t.Run("closes conn and propagates exec error", func(t *testing.T) {
 		fc := &fakeConnector{assumeErr: errors.New("boom")}
-		asc := &assumeServiceAccountConnector{base: fc, stmt: stmt}
-		_, err := asc.Connect(context.Background())
+		sc := &sessionConnector{base: fc, assume: stmt}
+		_, err := sc.Connect(context.Background())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to assume service account")
 		assert.Contains(t, err.Error(), "boom")
@@ -578,44 +591,45 @@ func TestAssumeServiceAccountConnector(t *testing.T) {
 
 	t.Run("errors when conn lacks the lib/pq interfaces", func(t *testing.T) {
 		pc := &plainConn{}
-		asc := &assumeServiceAccountConnector{base: &fakeConnector{conn: pc}, stmt: stmt}
-		_, err := asc.Connect(context.Background())
+		sc := &sessionConnector{base: &fakeConnector{conn: pc}, assume: stmt}
+		_, err := sc.Connect(context.Background())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "does not support the interfaces required")
 		assert.True(t, pc.closed)
 	})
 
 	t.Run("propagates base connect error", func(t *testing.T) {
-		asc := &assumeServiceAccountConnector{base: &fakeConnector{connectErr: errors.New("dial fail")}, stmt: stmt}
-		_, err := asc.Connect(context.Background())
+		sc := &sessionConnector{base: &fakeConnector{connectErr: errors.New("dial fail")}, assume: stmt}
+		_, err := sc.Connect(context.Background())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "dial fail")
 	})
 
 	t.Run("closing the pool runs onClose", func(t *testing.T) {
 		calls := 0
-		db := sql.OpenDB(&assumeServiceAccountConnector{base: &fakeConnector{}, stmt: stmt, onClose: func() { calls++ }})
+		db := sql.OpenDB(&sessionConnector{base: &fakeConnector{}, assume: stmt, onClose: func() { calls++ }})
 		require.NoError(t, db.Close())
 		require.NoError(t, db.Close())
 		assert.Equal(t, 1, calls)
 	})
 }
 
-// TestAssumedConnectionReuse drives the connector wrapper through database/sql pooling: a
+// TestSessionConnectionReuse drives the connector wrapper through database/sql pooling: a
 // session's identity can be changed by the SQL a user runs, and must not carry over to the
 // next user the pool hands the same connection to.
-func TestAssumedConnectionReuse(t *testing.T) {
+func TestSessionConnectionReuse(t *testing.T) {
 	const account = "sa_analysts"
 	ctx := context.Background()
 
 	// newPool returns a one-connection pool that keeps its connection idle between uses, so
-	// every checkout after the first reuses the same session.
-	newPool := func(t *testing.T) (*sql.DB, *fakeConnector) {
+	// every checkout after the first reuses the same session unless it is discarded. An empty
+	// serviceAccount makes it a base login pool.
+	newPool := func(t *testing.T, serviceAccount string) (*sql.DB, *fakeConnector) {
 		t.Helper()
 		fc := &fakeConnector{}
-		stmt, err := buildAssumeStatement(account)
+		stmt, err := buildAssumeStatement(serviceAccount)
 		require.NoError(t, err)
-		db := sql.OpenDB(&assumeServiceAccountConnector{base: fc, stmt: stmt})
+		db := sql.OpenDB(&sessionConnector{base: fc, assume: stmt})
 		db.SetMaxOpenConns(1)
 		db.SetMaxIdleConns(1)
 		t.Cleanup(func() { _ = db.Close() })
@@ -629,6 +643,19 @@ func TestAssumedConnectionReuse(t *testing.T) {
 		require.NoError(t, q.QueryRowContext(ctx, "SELECT current_user()").Scan(&who))
 		return who
 	}
+	// runAsUser borrows a connection, runs userSQL on it, checks the identity it leaves the
+	// session with, and releases the connection to the pool.
+	runAsUser := func(t *testing.T, db *sql.DB, userSQL []string, leftAs string) {
+		t.Helper()
+		conn, err := db.Conn(ctx)
+		require.NoError(t, err)
+		for _, stmt := range userSQL {
+			_, err = conn.ExecContext(ctx, stmt)
+			require.NoError(t, err)
+		}
+		assert.Equal(t, leftAs, currentUser(t, conn), "the change applies to the rest of this user's session")
+		require.NoError(t, conn.Close())
+	}
 
 	for _, tc := range []struct {
 		name    string
@@ -638,26 +665,19 @@ func TestAssumedConnectionReuse(t *testing.T) {
 		{name: "EXIT reverts to the base login", userSQL: "EXIT SERVICE ACCOUNT " + account, leftAs: fakeBaseLogin},
 		{name: "ASSUME switches to another account", userSQL: `ASSUME SERVICE ACCOUNT "sa_other"`, leftAs: "sa_other"},
 	} {
-		t.Run(tc.name+", then the next user of the connection gets the pool's account", func(t *testing.T) {
-			db, fc := newPool(t)
+		t.Run("routed pool: "+tc.name+", then the next user of the connection gets the pool's account", func(t *testing.T) {
+			db, fc := newPool(t, account)
+			assert.Equal(t, account, currentUser(t, db))
+			runAsUser(t, db, []string{tc.userSQL}, tc.leftAs)
 
-			// User A changes the session identity on a pinned connection, then releases it.
-			conn, err := db.Conn(ctx)
-			require.NoError(t, err)
-			assert.Equal(t, account, currentUser(t, conn))
-			_, err = conn.ExecContext(ctx, tc.userSQL)
-			require.NoError(t, err)
-			assert.Equal(t, tc.leftAs, currentUser(t, conn), "the change applies to the rest of user A's session")
-			require.NoError(t, conn.Close())
-
-			// User B, mapped to the same account, borrows the same physical connection.
+			// The next user, mapped to the same account, borrows the same physical connection.
 			assert.Equal(t, account, currentUser(t, db))
 			require.Len(t, fc.openedSessions(), 1, "the identity must be restored on the reused connection, not by reconnecting")
 		})
 	}
 
-	t.Run("a failed re-ASSUME discards the connection and reports why", func(t *testing.T) {
-		db, fc := newPool(t)
+	t.Run("routed pool: a failed re-ASSUME discards the connection and reports why", func(t *testing.T) {
+		db, fc := newPool(t, account)
 		assert.Equal(t, account, currentUser(t, db))
 
 		fc.setAssumeErr(errors.New("User cannot assume service account"))
@@ -673,6 +693,25 @@ func TestAssumedConnectionReuse(t *testing.T) {
 		// Once ASSUME succeeds again, the pool recovers with a fresh connection.
 		fc.setAssumeErr(nil)
 		assert.Equal(t, account, currentUser(t, db))
+	})
+
+	t.Run("base login pool: a connection left assuming an account is discarded before reuse", func(t *testing.T) {
+		db, fc := newPool(t, "")
+		runAsUser(t, db, []string{`ASSUME SERVICE ACCOUNT "sa_execs"`}, "sa_execs")
+
+		assert.Equal(t, fakeBaseLogin, currentUser(t, db))
+		sessions := fc.openedSessions()
+		require.Len(t, sessions, 2)
+		assert.True(t, sessions[0].isClosed(), "the connection still assuming an account must be discarded")
+	})
+
+	t.Run("base login pool: a connection back at the login is reused", func(t *testing.T) {
+		db, fc := newPool(t, "")
+		assert.Equal(t, fakeBaseLogin, currentUser(t, db))
+		runAsUser(t, db, []string{`ASSUME SERVICE ACCOUNT "sa_execs"`, "EXIT SERVICE ACCOUNT sa_execs"}, fakeBaseLogin)
+
+		assert.Equal(t, fakeBaseLogin, currentUser(t, db))
+		require.Len(t, fc.openedSessions(), 1, "a clean session must not be reconnected")
 	})
 }
 
