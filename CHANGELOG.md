@@ -21,10 +21,10 @@ and this project adheres to
 ## Added
 
 - Per-user QuestDB service-account routing: optionally assume a per-user or per-group service
-  account on each query so QuestDB Enterprise memory limits apply per Grafana user. Groups are
-  read from an OIDC/Okta ID token forwarded via Grafana's "Forward OAuth Identity", with
-  username > group > default precedence. Disabled by default; behavior is unchanged when off.
-  See the "Per-user service accounts" section in the README.
+  account on each query so QuestDB Enterprise (4.0.2+) memory limits apply per Grafana user.
+  Groups are read from an OIDC/Okta ID token forwarded via Grafana's "Forward OAuth Identity",
+  with username > group > default precedence. Disabled by default; behavior is unchanged when
+  off. See the "Per-user service accounts" section in the README.
 
 ## 0.1.4
 

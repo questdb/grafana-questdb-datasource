@@ -18,14 +18,20 @@ import (
 )
 
 // TestServiceAccountRoutingIntegration verifies the end-to-end ASSUME SERVICE ACCOUNT
-// behavior (design §12) against a running QuestDB *Enterprise* instance. Service accounts
-// and memory limits are Enterprise-only, so the default OSS test container cannot run it;
-// the test is skipped unless QUESTDB_ENTERPRISE=true. To run it, point QUESTDB_HOST /
-// QUESTDB_PORT (and credentials) at an Enterprise instance whose login can create service
-// accounts and set memory limits, e.g.:
+// behavior (design §12) against a running QuestDB *Enterprise* instance (4.0.2+, for
+// per-principal memory limits). Service accounts and memory limits are Enterprise-only, so
+// the default OSS test container cannot run it; the test is skipped unless
+// QUESTDB_ENTERPRISE=true. To run it, point QUESTDB_HOST / QUESTDB_PORT (and credentials)
+// at an Enterprise instance whose login — e.g. the built-in admin — can create users and
+// service accounts and set memory limits, e.g.:
 //
 //	QUESTDB_USE_DOCKER=false QUESTDB_ENTERPRISE=true QUESTDB_HOST=... QUESTDB_PORT=... \
-//	  go test ./pkg/plugin/ -run TestServiceAccountRoutingIntegration -v
+//	  go test ./pkg/plugin/ -run 'RoutingIntegration' -v
+//
+// That login only sets the fixture up. The routed pools log in as a dedicated non-admin
+// user the test creates, as the README recommends for the data source: the built-in admin
+// can assume any service account without a grant and cannot be given a memory limit, so the
+// base-login limit cases below could not fail against it.
 //
 // NOTE: the memory-limit thresholds / heavy query below are best-effort and may need
 // tuning for the target instance's resources.
@@ -35,26 +41,32 @@ func TestServiceAccountRoutingIntegration(t *testing.T) {
 	}
 
 	admin := setupConnection(t)
-	defer admin.Close()
+	// Registered before the fixtures, so it runs after their DROP cleanups (a deferred Close
+	// would run first and silently fail them).
+	t.Cleanup(func() { _ = admin.Close() })
 
 	const sa = "sa_grafana_it"
-	username := getEnv("QUESTDB_USERNAME", "admin")
+	base := createRoutingLogin(t, admin, "grafana_it_base")
+	createServiceAccount(t, admin, sa)
+	mustExec(t, admin, fmt.Sprintf("GRANT ASSUME SERVICE ACCOUNT %s TO %s", sa, base.username))
 
-	mustExec := func(q string) {
-		_, err := admin.Exec(q)
-		require.NoError(t, err, q)
+	// setLimits pins both limits at the start of each subtest so none depends on the order
+	// they run in. UNLIMITED clears a limit; the server-wide query limit (0 by default) then
+	// applies.
+	setLimits := func(t *testing.T, saLimit, baseLimit string) {
+		t.Helper()
+		mustExec(t, admin, fmt.Sprintf("ALTER SERVICE ACCOUNT %s SET MEMORY LIMIT %s", sa, saLimit))
+		mustExec(t, admin, fmt.Sprintf("ALTER USER %s SET MEMORY LIMIT %s", base.username, baseLimit))
 	}
-	_, _ = admin.Exec("DROP SERVICE ACCOUNT " + sa) // best-effort cleanup from a prior run
-	mustExec("CREATE SERVICE ACCOUNT " + sa)
-	_, _ = admin.Exec("GRANT SELECT ON ALL TABLES TO " + sa) // best-effort; not needed by long_sequence()
-	mustExec(fmt.Sprintf("GRANT ASSUME SERVICE ACCOUNT %s TO %s", sa, username))
-	t.Cleanup(func() { _, _ = admin.Exec("DROP SERVICE ACCOUNT " + sa) })
+	t.Cleanup(func() { _, _ = admin.Exec(fmt.Sprintf("ALTER USER %s SET MEMORY LIMIT UNLIMITED", base.username)) })
 
 	// A modestly memory-hungry query: a high-cardinality aggregation.
 	const heavy = "SELECT x, count() FROM long_sequence(1000000) GROUP BY x"
+	ctx := context.Background()
 
 	t.Run("assume runs and queries work through the routed pool", func(t *testing.T) {
-		routed := routedConnection(t, sa)
+		setLimits(t, "UNLIMITED", "UNLIMITED")
+		routed := routedConnection(t, base, sa)
 		defer routed.Close()
 		require.NoError(t, routed.Ping())
 		var x int64
@@ -64,19 +76,55 @@ func TestServiceAccountRoutingIntegration(t *testing.T) {
 
 	t.Run("memory limit on the service account is enforced", func(t *testing.T) {
 		// Unlimited: the query succeeds through the routed (assumed) pool.
-		mustExec(fmt.Sprintf("ALTER SERVICE ACCOUNT %s SET MEMORY LIMIT 0", sa))
-		unlimited := routedConnection(t, sa)
+		setLimits(t, "UNLIMITED", "UNLIMITED")
+		unlimited := routedConnection(t, base, sa)
 		_, err := unlimited.Exec(heavy)
 		require.NoError(t, err, "unlimited service account should run the query")
 		unlimited.Close()
 
 		// Tight limit: the same query on a fresh pool must hit the cap. Only the limit
 		// changed, so a failure here is attributable to the service account's limit.
-		mustExec(fmt.Sprintf("ALTER SERVICE ACCOUNT %s SET MEMORY LIMIT 1K", sa))
-		limited := routedConnection(t, sa)
+		setLimits(t, "1K", "UNLIMITED")
+		limited := routedConnection(t, base, sa)
 		defer limited.Close()
 		_, err = limited.Exec(heavy)
 		requireMemoryLimitError(t, err, "tightly-capped service account should fail the query")
+	})
+
+	t.Run("a changed limit reaches an already-open routed connection", func(t *testing.T) {
+		// QuestDB resolves the principal's limit per query, so an operator can retune a limit
+		// without Grafana reconnecting (the README relies on this). Pin one physical
+		// connection so both queries provably run on the same assumed session.
+		setLimits(t, "UNLIMITED", "UNLIMITED")
+		routed := routedConnection(t, base, sa)
+		defer routed.Close()
+		conn, err := routed.Conn(ctx)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		_, err = conn.ExecContext(ctx, heavy)
+		require.NoError(t, err, "unlimited service account should run the query")
+
+		setLimits(t, "1K", "UNLIMITED")
+		_, err = conn.ExecContext(ctx, heavy)
+		requireMemoryLimitError(t, err, "the tightened limit must apply to the open connection's next query")
+	})
+
+	t.Run("the service account's limit replaces the base login's", func(t *testing.T) {
+		// A per-principal limit follows the assumed principal: the capped base login runs
+		// the query uncapped once it assumes an unlimited service account. The unrouted
+		// control proves the base login's cap is live, so the routed success is due to ASSUME.
+		setLimits(t, "UNLIMITED", "1K")
+
+		unrouted := baseConnection(t, base)
+		defer unrouted.Close()
+		_, err := unrouted.Exec(heavy)
+		requireMemoryLimitError(t, err, "the capped base login should fail the query without ASSUME")
+
+		routed := routedConnection(t, base, sa)
+		defer routed.Close()
+		_, err = routed.Exec(heavy)
+		require.NoError(t, err, "the assumed service account's limit, not the base login's, should apply")
 	})
 
 	t.Run("memory limit still applies after a prior error on the same pooled connection", func(t *testing.T) {
@@ -84,39 +132,44 @@ func TestServiceAccountRoutingIntegration(t *testing.T) {
 		// errors — here a memory-limit abort — must NOT silently revert the physical
 		// connection to the base login. We pin ONE physical connection, fail a heavy query on
 		// it, then prove the SAME reused connection is still capped. If the assumed account
-		// had reverted to the (unlimited admin) base login, the second heavy query would
-		// instead succeed. Confirmed against the Enterprise PGWire source: the assumed account
-		// lives in the per-connection SecurityContext.accessList, survives the per-query reset
-		// and non-fatal query errors, and reverts only on explicit EXIT, grant revocation, or
-		// connection teardown.
-		mustExec(fmt.Sprintf("ALTER SERVICE ACCOUNT %s SET MEMORY LIMIT 1K", sa))
-		routed := routedConnection(t, sa)
+		// had reverted to the (unlimited) base login, the second heavy query would instead
+		// succeed. Confirmed against the Enterprise source: ASSUME swaps the per-connection
+		// security context's access list, which survives the per-query reset and non-fatal
+		// query errors, and reverts only on explicit EXIT, grant revocation, or connection
+		// teardown.
+		setLimits(t, "1K", "UNLIMITED")
+		routed := routedConnection(t, base, sa)
 		defer routed.Close()
 
-		conn, err := routed.Conn(context.Background())
+		conn, err := routed.Conn(ctx)
 		require.NoError(t, err)
 		defer conn.Close()
 
-		_, err = conn.ExecContext(context.Background(), heavy)
+		_, err = conn.ExecContext(ctx, heavy)
 		requireMemoryLimitError(t, err, "first heavy query on the pinned connection should hit the cap")
 
-		_, err = conn.ExecContext(context.Background(), heavy)
+		_, err = conn.ExecContext(ctx, heavy)
 		requireMemoryLimitError(t, err, "reused connection must still be capped after the prior error")
 	})
 
-	t.Run("EXIT SERVICE ACCOUNT reverts to the base login", func(t *testing.T) {
-		mustExec(fmt.Sprintf("ALTER SERVICE ACCOUNT %s SET MEMORY LIMIT 0", sa))
-		routed := routedConnection(t, sa)
+	t.Run("EXIT SERVICE ACCOUNT reverts to the base login's limit", func(t *testing.T) {
+		// The README's reason to cap the base login too: raw SQL can EXIT the assumed account,
+		// after which the base login's own limit is what applies.
+		setLimits(t, "UNLIMITED", "1K")
+		routed := routedConnection(t, base, sa)
 		defer routed.Close()
 		// Pin a single physical connection so EXIT and the follow-up run on the same session.
-		conn, err := routed.Conn(context.Background())
+		conn, err := routed.Conn(ctx)
 		require.NoError(t, err)
 		defer conn.Close()
-		_, err = conn.ExecContext(context.Background(), "EXIT SERVICE ACCOUNT")
+
+		_, err = conn.ExecContext(ctx, heavy)
+		require.NoError(t, err, "the unlimited assumed account should run the query")
+
+		_, err = conn.ExecContext(ctx, fmt.Sprintf("EXIT SERVICE ACCOUNT %s", sa))
 		require.NoError(t, err)
-		var x int64
-		require.NoError(t, conn.QueryRowContext(context.Background(), "SELECT x FROM long_sequence(1)").Scan(&x))
-		assert.Equal(t, int64(1), x)
+		_, err = conn.ExecContext(ctx, heavy)
+		requireMemoryLimitError(t, err, "after EXIT the capped base login's limit should apply")
 	})
 }
 
@@ -124,22 +177,22 @@ func TestServiceAccountRoutingIntegration(t *testing.T) {
 // running QuestDB *Enterprise* instance: Save & Test (PostCheckHealth) must actually run an
 // ASSUME for the default service account, so a routing misconfiguration fails here rather
 // than passing the green base-login check and breaking only on routed dashboard queries.
-// Enterprise-gated for the same reason as TestServiceAccountRoutingIntegration.
+// Enterprise-gated, and run through a dedicated non-admin login, for the same reasons as
+// TestServiceAccountRoutingIntegration.
 func TestPostCheckHealthRoutingIntegration(t *testing.T) {
 	if strings.ToLower(getEnv("QUESTDB_ENTERPRISE", "false")) != "true" {
 		t.Skip("requires QuestDB Enterprise; set QUESTDB_ENTERPRISE=true and point QUESTDB_HOST/PORT at it")
 	}
 
 	admin := setupConnection(t)
-	defer admin.Close()
+	// Registered before the fixtures, so it runs after their DROP cleanups (a deferred Close
+	// would run first and silently fail them).
+	t.Cleanup(func() { _ = admin.Close() })
 
 	const sa = "sa_grafana_health_it"
-	username := getEnv("QUESTDB_USERNAME", "admin")
-
-	_, _ = admin.Exec("DROP SERVICE ACCOUNT " + sa) // best-effort cleanup from a prior run
-	_, err := admin.Exec("CREATE SERVICE ACCOUNT " + sa)
-	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = admin.Exec("DROP SERVICE ACCOUNT " + sa) })
+	const saNoPgwire = "sa_grafana_health_nopg_it"
+	base := createRoutingLogin(t, admin, "grafana_health_it_base")
+	createServiceAccount(t, admin, sa)
 
 	ctx := context.Background()
 	h := &plugin.QuestDB{}
@@ -148,37 +201,85 @@ func TestPostCheckHealthRoutingIntegration(t *testing.T) {
 	// never GRANTed ASSUME on it. The base Save & Test (default pool, no ASSUME) is green, so
 	// without PostCheckHealth this misconfiguration would surface only on routed queries.
 	t.Run("unhealthy when GRANT ASSUME is missing", func(t *testing.T) {
-		res := h.PostCheckHealth(ctx, healthCheckRequest(t, sa))
+		res := h.PostCheckHealth(ctx, healthCheckRequest(t, base, sa))
 		require.NotNil(t, res, "missing GRANT ASSUME must fail Save & Test")
 		assert.Equal(t, backend.HealthStatusError, res.Status)
+		assert.Contains(t, res.Message, "User cannot assume service account")
+	})
+
+	t.Run("unhealthy when the service account lacks PGWIRE", func(t *testing.T) {
+		// ASSUME over PGWire also checks the service account's own endpoint permission, so a
+		// granted account without GRANT PGWIRE still breaks every routed query.
+		_, _ = admin.Exec("DROP SERVICE ACCOUNT " + saNoPgwire) // best-effort cleanup from a prior run
+		mustExec(t, admin, "CREATE SERVICE ACCOUNT "+saNoPgwire)
+		t.Cleanup(func() { _, _ = admin.Exec("DROP SERVICE ACCOUNT " + saNoPgwire) })
+		mustExec(t, admin, fmt.Sprintf("GRANT ASSUME SERVICE ACCOUNT %s TO %s", saNoPgwire, base.username))
+
+		res := h.PostCheckHealth(ctx, healthCheckRequest(t, base, saNoPgwire))
+		require.NotNil(t, res, "a service account without PGWIRE must fail Save & Test")
+		assert.Equal(t, backend.HealthStatusError, res.Status)
+		assert.Contains(t, res.Message, "Access denied for "+saNoPgwire+" [PGWIRE]")
 	})
 
 	t.Run("healthy once the default account is granted and assumable", func(t *testing.T) {
-		_, err := admin.Exec(fmt.Sprintf("GRANT ASSUME SERVICE ACCOUNT %s TO %s", sa, username))
-		require.NoError(t, err)
-		res := h.PostCheckHealth(ctx, healthCheckRequest(t, sa))
+		mustExec(t, admin, fmt.Sprintf("GRANT ASSUME SERVICE ACCOUNT %s TO %s", sa, base.username))
+		res := h.PostCheckHealth(ctx, healthCheckRequest(t, base, sa))
 		assert.Nil(t, res, "a granted, assumable default account should pass Save & Test")
 	})
 
 	t.Run("unhealthy when the default account does not exist", func(t *testing.T) {
-		res := h.PostCheckHealth(ctx, healthCheckRequest(t, "sa_does_not_exist_xyz"))
+		res := h.PostCheckHealth(ctx, healthCheckRequest(t, base, "sa_does_not_exist_xyz"))
 		require.NotNil(t, res, "a non-existent default account must fail Save & Test")
 		assert.Equal(t, backend.HealthStatusError, res.Status)
+		assert.Contains(t, res.Message, "Service account does not exist")
 	})
 }
 
+// routingLogin is the data source login the routing integration tests connect as.
+type routingLogin struct {
+	username string
+	password string
+}
+
+func mustExec(t *testing.T, db *sql.DB, q string) {
+	t.Helper()
+	_, err := db.Exec(q)
+	require.NoError(t, err, q)
+}
+
+// createRoutingLogin creates a non-admin user with PGWire access to act as the data source's
+// base login, and drops it when the test ends.
+func createRoutingLogin(t *testing.T, admin *sql.DB, username string) routingLogin {
+	t.Helper()
+	login := routingLogin{username: username, password: "grafana_it_pwd"}
+	_, _ = admin.Exec("DROP USER " + username) // best-effort cleanup from a prior run
+	mustExec(t, admin, fmt.Sprintf("CREATE USER %s WITH PASSWORD '%s'", username, login.password))
+	t.Cleanup(func() { _, _ = admin.Exec("DROP USER " + username) })
+	mustExec(t, admin, "GRANT PGWIRE TO "+username)
+	return login
+}
+
+// createServiceAccount creates a service account that can be assumed over PGWire, and drops
+// it when the test ends. It needs no table grants: the tests only query long_sequence().
+func createServiceAccount(t *testing.T, admin *sql.DB, name string) {
+	t.Helper()
+	_, _ = admin.Exec("DROP SERVICE ACCOUNT " + name) // best-effort cleanup from a prior run
+	mustExec(t, admin, "CREATE SERVICE ACCOUNT "+name)
+	t.Cleanup(func() { _, _ = admin.Exec("DROP SERVICE ACCOUNT " + name) })
+	mustExec(t, admin, "GRANT PGWIRE TO "+name)
+}
+
 // routingTestConfig builds the shared jsonData + decrypted-secure map pointing at the test
-// QuestDB instance with service-account routing enabled. extraJSON is appended verbatim as
-// additional jsonData fields (e.g. `,"defaultServiceAccount":"sa"`); pass "" for none.
-func routingTestConfig(t *testing.T, extraJSON string) ([]byte, map[string]string) {
+// QuestDB instance as login, with service-account routing enabled. extraJSON is appended
+// verbatim as additional jsonData fields (e.g. `,"defaultServiceAccount":"sa"`); pass "" for
+// none.
+func routingTestConfig(t *testing.T, login routingLogin, extraJSON string) backend.DataSourceInstanceSettings {
 	t.Helper()
 	host := getEnv("QUESTDB_HOST", "localhost")
 	port := getEnv("QUESTDB_PORT", "8812")
-	username := getEnv("QUESTDB_USERNAME", "admin")
-	password := getEnv("QUESTDB_PASSWORD", "quest")
 	tlsEnabled := getEnv("QUESTDB_TLS_ENABLED", "false")
 
-	secure := map[string]string{"password": password}
+	secure := map[string]string{"password": login.password}
 	tlsMode := "disable"
 	tlsMethod := ""
 	if tlsEnabled == "true" {
@@ -193,59 +294,61 @@ func routingTestConfig(t *testing.T, extraJSON string) ([]byte, map[string]strin
 
 	jsonData := fmt.Sprintf(
 		`{"server":%q,"port":%s,"username":%q,"tlsMode":%q,"tlsConfigurationMethod":%q,"serviceAccountRoutingEnabled":true%s}`,
-		host, port, username, tlsMode, tlsMethod, extraJSON)
-	return []byte(jsonData), secure
+		host, port, login.username, tlsMode, tlsMethod, extraJSON)
+	return backend.DataSourceInstanceSettings{
+		JSONData:                []byte(jsonData),
+		DecryptedSecureJSONData: secure,
+	}
 }
 
-// healthCheckRequest builds a CheckHealthRequest whose data source enables routing with the
-// given default service account, pointed at the test QuestDB instance (mirrors how Grafana
-// invokes CheckHealth with the decrypted password present).
-func healthCheckRequest(t *testing.T, defaultSA string) *backend.CheckHealthRequest {
+// healthCheckRequest builds a CheckHealthRequest whose data source logs in as login and
+// enables routing with the given default service account, pointed at the test QuestDB
+// instance (mirrors how Grafana invokes CheckHealth with the decrypted password present).
+func healthCheckRequest(t *testing.T, login routingLogin, defaultSA string) *backend.CheckHealthRequest {
 	t.Helper()
-	jsonData, secure := routingTestConfig(t, fmt.Sprintf(`,"defaultServiceAccount":%q`, defaultSA))
+	cfg := routingTestConfig(t, login, fmt.Sprintf(`,"defaultServiceAccount":%q`, defaultSA))
 	return &backend.CheckHealthRequest{
-		PluginContext: backend.PluginContext{
-			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{
-				JSONData:                jsonData,
-				DecryptedSecureJSONData: secure,
-			},
-		},
+		PluginContext: backend.PluginContext{DataSourceInstanceSettings: &cfg},
 	}
 }
 
 // routedConnection opens a *sql.DB through the plugin's Connect with service-account
 // routing enabled, mirroring how sqlds would call it with a stamped connectionArgs
-// message. Every physical connection in the returned pool assumes sa.
-func routedConnection(t *testing.T, sa string) *sql.DB {
+// message. Every physical connection in the returned pool logs in as login and assumes sa.
+func routedConnection(t *testing.T, login routingLogin, sa string) *sql.DB {
 	t.Helper()
-	jsonData, secure := routingTestConfig(t, "")
-	cfg := backend.DataSourceInstanceSettings{
-		JSONData:                jsonData,
-		DecryptedSecureJSONData: secure,
-	}
 	msg, err := json.Marshal(map[string]string{"serviceAccount": sa})
 	require.NoError(t, err)
 
-	db, err := (&plugin.QuestDB{}).Connect(context.Background(), cfg, msg)
+	db, err := (&plugin.QuestDB{}).Connect(context.Background(), routingTestConfig(t, login, ""), msg)
 	require.NoError(t, err)
 	return db
 }
 
-// requireMemoryLimitError asserts that err is QuestDB's memory-limit abort: a server-side
-// pq error (a normal PGWire ErrorResponse, so the connection stays open and lib/pq returns
-// *pq.Error) whose message is the memory-limit cap specifically. Requiring *pq.Error rather
-// than just "some error" proves the physical connection stayed alive — so a passing reuse
-// case means the assumed service account survived the prior error rather than the connection
-// having silently died — and matching the message proves the failure is the cap, not some
-// other server-side rejection. A service-account MEMORY LIMIT is enforced as a per-workload
-// tracker limit, so QuestDB Enterprise emits "query memory limit exceeded [workload=...]";
-// the server-wide cap emits "global RSS memory limit exceeded [...]". Both contain the
-// substring "memory limit exceeded" (see io.questdb.std.Unsafe in questdb-enterprise).
+// baseConnection opens the pool sqlds uses for queries without connectionArgs: it logs in
+// as login and assumes nothing, even though routing is enabled on the data source.
+func baseConnection(t *testing.T, login routingLogin) *sql.DB {
+	t.Helper()
+	db, err := (&plugin.QuestDB{}).Connect(context.Background(), routingTestConfig(t, login, ""), nil)
+	require.NoError(t, err)
+	return db
+}
+
+// requireMemoryLimitError asserts that err is QuestDB's per-query memory-limit abort: a
+// server-side pq error (a normal PGWire ErrorResponse, so the connection stays open and
+// lib/pq returns *pq.Error) whose message is the per-query cap specifically. Requiring
+// *pq.Error rather than just "some error" proves the physical connection stayed alive — so a
+// passing reuse case means the assumed service account survived the prior error rather than
+// the connection having silently died — and matching the message proves the failure is the
+// cap, not some other server-side rejection. A principal's MEMORY LIMIT is enforced by the
+// query's memory tracker, which emits "query memory limit exceeded [workload=QUERY, ...]";
+// the process-wide cap's "global RSS memory limit exceeded [...]" deliberately does not match
+// (see io.questdb.std.Unsafe in questdb).
 func requireMemoryLimitError(t *testing.T, err error, msg string) {
 	t.Helper()
 	require.Error(t, err, msg)
 	var pqErr *pq.Error
 	require.ErrorAs(t, err, &pqErr, msg+" (expected a server-side pq error, not a dropped connection)")
-	assert.Contains(t, strings.ToLower(pqErr.Message), "memory limit exceeded",
-		msg+" (expected a QuestDB memory-limit abort, not another server-side error)")
+	assert.Contains(t, pqErr.Message, "query memory limit exceeded",
+		msg+" (expected a QuestDB per-query memory-limit abort, not another server-side error)")
 }

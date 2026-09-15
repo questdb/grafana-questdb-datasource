@@ -354,8 +354,10 @@ const assumeProbeTimeout = 30 * time.Second
 // connectivity against the default pool. That base check never exercises service-account
 // routing: it connects with no connectionArgs, so no ASSUME runs. A misconfiguration in
 // the routing path — a malformed account name, a missing
-// `GRANT ASSUME SERVICE ACCOUNT … TO <login>`, or a non-existent default account — would
-// therefore pass Save & Test and only surface later as a failure on every routed query.
+// `GRANT ASSUME SERVICE ACCOUNT … TO <login>`, a missing `GRANT PGWIRE` on the account
+// (ASSUME over PGWire checks the account's own endpoint permission), or a non-existent
+// default account — would therefore pass Save & Test and only surface later as a failure
+// on every routed query.
 //
 // To close that gap, when routing is enabled this:
 //  1. validates every configured account name syntactically (cheap, no DB round-trip), and
@@ -409,7 +411,7 @@ func (h *QuestDB) PostCheckHealth(ctx context.Context, req *backend.CheckHealthR
 	defer cancel()
 	if err := db.PingContext(probeCtx); err != nil {
 		return routingHealthError(fmt.Sprintf(
-			"cannot assume the default service account %q: %v; ensure it exists and that the data source login has been granted ASSUME SERVICE ACCOUNT %s",
+			"cannot assume the default service account %q: %v; ensure it exists, has been granted PGWIRE, and that the data source login has been granted ASSUME SERVICE ACCOUNT %s",
 			sa, err, sa))
 	}
 	return nil
