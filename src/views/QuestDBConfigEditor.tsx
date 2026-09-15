@@ -5,10 +5,17 @@ import {
   onUpdateDatasourceSecureJsonDataOption,
   SelectableValue,
 } from '@grafana/data';
-import { Field, Input, SecretInput, Select, Switch } from '@grafana/ui';
+import { Alert, Field, Input, SecretInput, Select, Switch } from '@grafana/ui';
 import { CertificationKey } from '../components/ui/CertificationKey';
+import { MappingList } from '../components/ui/MappingList';
 import { Components } from './../selectors';
-import { PostgresTLSModes, QuestDBConfig, QuestDBSecureConfig } from './../types';
+import {
+  PostgresTLSModes,
+  QuestDBConfig,
+  QuestDBSecureConfig,
+  ServiceAccountGroupMapping,
+  ServiceAccountMapping,
+} from './../types';
 import { gte } from 'semver';
 import { ConfigSection, DataSourceDescription } from '@grafana/experimental';
 import { config } from '@grafana/runtime';
@@ -41,13 +48,43 @@ export const ConfigEditor: React.FC<Props> = (props) => {
       },
     });
   };
-  const onSwitchToggle = (key: keyof Pick<QuestDBConfig, 'validate' | 'enableSecureSocksProxy'>, value: boolean) => {
+  const setJsonData = <K extends keyof QuestDBConfig>(key: K, value: QuestDBConfig[K]) => {
     onOptionsChange({
       ...options,
       jsonData: {
         ...options.jsonData,
         [key]: value,
       },
+    });
+  };
+  const onSwitchToggle = (
+    key: keyof Pick<
+      QuestDBConfig,
+      'validate' | 'enableSecureSocksProxy' | 'serviceAccountRoutingEnabled' | 'oauthPassThru'
+    >,
+    value: boolean
+  ) => setJsonData(key, value);
+
+  const mappings = jsonData.serviceAccountMappings ?? [];
+  const onMappingsChange = (next: ServiceAccountMapping[]) => setJsonData('serviceAccountMappings', next);
+
+  const groupMappings = jsonData.serviceAccountGroupMappings ?? [];
+  const onGroupMappingsChange = (next: ServiceAccountGroupMapping[]) =>
+    setJsonData('serviceAccountGroupMappings', next);
+
+  // Turning routing off also clears Forward OAuth Identity: that switch lives inside the
+  // routing block, so leaving oauthPassThru on would strand it with no UI to turn it back
+  // off while Grafana keeps forwarding the user's OAuth token to the backend. The other
+  // routing fields (default account, mappings) are inert when routing is off and are kept,
+  // so an accidental toggle does not discard the operator's configured mappings.
+  const onRoutingToggle = (enabled: boolean) => {
+    if (enabled) {
+      setJsonData('serviceAccountRoutingEnabled', true);
+      return;
+    }
+    onOptionsChange({
+      ...options,
+      jsonData: { ...options.jsonData, serviceAccountRoutingEnabled: false, oauthPassThru: false },
     });
   };
 
@@ -342,6 +379,124 @@ export const ConfigEditor: React.FC<Props> = (props) => {
             </>
           </>
         ) : null}
+      </ConfigSection>
+
+      <Divider />
+      <ConfigSection title="Per-user service accounts">
+        <Field
+          label={Components.ConfigEditor.ServiceAccountRouting.label}
+          description={Components.ConfigEditor.ServiceAccountRouting.tooltip}
+        >
+          <Switch
+            className="gf-form"
+            aria-label={Components.ConfigEditor.ServiceAccountRouting.label}
+            value={jsonData.serviceAccountRoutingEnabled || false}
+            onChange={(e) => onRoutingToggle(e.currentTarget.checked)}
+          />
+        </Field>
+
+        {jsonData.serviceAccountRoutingEnabled && (
+          <>
+            <Field
+              label={Components.ConfigEditor.DefaultServiceAccount.label}
+              description={Components.ConfigEditor.DefaultServiceAccount.tooltip}
+            >
+              <Input
+                name="defaultServiceAccount"
+                width={40}
+                value={jsonData.defaultServiceAccount || ''}
+                onChange={onUpdateDatasourceJsonDataOption(props, 'defaultServiceAccount')}
+                label={Components.ConfigEditor.DefaultServiceAccount.label}
+                aria-label={Components.ConfigEditor.DefaultServiceAccount.label}
+                placeholder={Components.ConfigEditor.DefaultServiceAccount.placeholder}
+              />
+            </Field>
+
+            <Field
+              label={Components.ConfigEditor.ServiceAccountMappings.label}
+              description={Components.ConfigEditor.ServiceAccountMappings.tooltip}
+            >
+              <MappingList<ServiceAccountMapping>
+                items={mappings}
+                newRow={() => ({ grafanaUser: '', serviceAccount: '' })}
+                onChange={onMappingsChange}
+                addLabel={Components.ConfigEditor.ServiceAccountMappings.addLabel}
+                removeLabel={Components.ConfigEditor.ServiceAccountMappings.removeLabel}
+                columns={[
+                  {
+                    field: 'grafanaUser',
+                    placeholder: Components.ConfigEditor.ServiceAccountMappings.grafanaUserPlaceholder,
+                    ariaLabel: Components.ConfigEditor.ServiceAccountMappings.grafanaUserPlaceholder,
+                  },
+                  {
+                    field: 'serviceAccount',
+                    placeholder: Components.ConfigEditor.ServiceAccountMappings.serviceAccountPlaceholder,
+                    ariaLabel: Components.ConfigEditor.ServiceAccountMappings.serviceAccountPlaceholder,
+                  },
+                ]}
+              />
+            </Field>
+
+            <Field
+              label={Components.ConfigEditor.ForwardOAuthIdentity.label}
+              description={Components.ConfigEditor.ForwardOAuthIdentity.tooltip}
+            >
+              <Switch
+                className="gf-form"
+                aria-label={Components.ConfigEditor.ForwardOAuthIdentity.label}
+                value={jsonData.oauthPassThru || false}
+                onChange={(e) => onSwitchToggle('oauthPassThru', e.currentTarget.checked)}
+              />
+            </Field>
+
+            <Field
+              label={Components.ConfigEditor.GroupsClaim.label}
+              description={Components.ConfigEditor.GroupsClaim.tooltip}
+            >
+              <Input
+                name="groupsClaim"
+                width={40}
+                value={jsonData.groupsClaim || ''}
+                onChange={onUpdateDatasourceJsonDataOption(props, 'groupsClaim')}
+                label={Components.ConfigEditor.GroupsClaim.label}
+                aria-label={Components.ConfigEditor.GroupsClaim.label}
+                placeholder={Components.ConfigEditor.GroupsClaim.placeholder}
+              />
+            </Field>
+
+            {groupMappings.length > 0 && !jsonData.oauthPassThru && (
+              <Alert
+                severity="warning"
+                title={Components.ConfigEditor.ServiceAccountGroupMappings.forwardOAuthWarning}
+              />
+            )}
+
+            <Field
+              label={Components.ConfigEditor.ServiceAccountGroupMappings.label}
+              description={Components.ConfigEditor.ServiceAccountGroupMappings.tooltip}
+            >
+              <MappingList<ServiceAccountGroupMapping>
+                items={groupMappings}
+                newRow={() => ({ group: '', serviceAccount: '' })}
+                onChange={onGroupMappingsChange}
+                addLabel={Components.ConfigEditor.ServiceAccountGroupMappings.addLabel}
+                removeLabel={Components.ConfigEditor.ServiceAccountGroupMappings.removeLabel}
+                columns={[
+                  {
+                    field: 'group',
+                    placeholder: Components.ConfigEditor.ServiceAccountGroupMappings.groupPlaceholder,
+                    ariaLabel: Components.ConfigEditor.ServiceAccountGroupMappings.groupPlaceholder,
+                  },
+                  {
+                    field: 'serviceAccount',
+                    placeholder: Components.ConfigEditor.ServiceAccountGroupMappings.serviceAccountPlaceholder,
+                    ariaLabel: `${Components.ConfigEditor.ServiceAccountGroupMappings.groupPlaceholder} ${Components.ConfigEditor.ServiceAccountGroupMappings.serviceAccountPlaceholder}`,
+                  },
+                ]}
+              />
+            </Field>
+          </>
+        )}
       </ConfigSection>
       <Divider />
     </>

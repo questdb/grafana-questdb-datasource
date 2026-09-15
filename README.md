@@ -88,6 +88,144 @@ datasources:
 If you are using QuestDB Enterprise and have enabled TLS, you would need to change
 `tlsMode: require` in the example above.
 
+### Per-user service accounts (memory limits)
+
+> Requires QuestDB **Enterprise** 4.0.2 or later (per-principal memory limits). With the
+> feature disabled (the default) the plugin behaves exactly as before and works against
+> Open Source.
+
+A single, shared data source can apply **per-Grafana-user memory limits** to the queries
+each user runs. The data source still authenticates with one common login; when a query
+runs, the plugin makes the QuestDB session assume a service account specific to the
+requesting Grafana user (or shared by a group of users):
+
+```sql
+ASSUME SERVICE ACCOUNT <serviceAccount>;
+```
+
+Because an Enterprise service account can carry a memory limit, and a session that assumes
+a service account runs its queries under that account's limit, this transparently caps the
+memory of that user's queries. To share a limit, map several Grafana users — or whole
+**OIDC/Okta groups** (see [Per-group routing](#per-group-routing-via-oidc-groups-okta)
+below) — to the same service account. Set the limit on the service account itself: service
+accounts never inherit QuestDB group limits.
+
+How the limit applies (see [memory limits](https://questdb.com/docs/security/rbac/#memory-limits)
+in the QuestDB docs for details):
+
+- It caps the native memory of **each query**, not a shared budget. Concurrent queries — from
+  one user or from everyone mapped to the same account — each run under the full limit.
+- An account without a limit of its own falls back to the server-wide
+  `cairo.query.memory.limit.bytes` (unlimited by default). An account limit overrides that
+  setting, even when it is larger.
+- A changed limit applies to the next query, including on connections Grafana already holds
+  open, so there is no need to restart Grafana or reconnect the data source.
+- A query that crosses the limit fails with `query memory limit exceeded [workload=QUERY, ...]`.
+  `SHOW SERVICE ACCOUNTS` reports each account's `memory_limit`, and `query_activity()` shows
+  per-query `memory_used` and `memory_limit`.
+
+The Grafana user is taken from the backend-verified identity (`PluginContext.User.Login`),
+so it cannot be tampered with from the query payload. Matching is case-insensitive.
+Unmapped users and backend-initiated queries (alerting, reporting) use the configured
+default service account; if no default is set, they run as the base login. A mapping row
+with a blank service account is ignored — that user falls back to the default rather than
+running uncapped.
+
+**QuestDB setup** (example: analysts capped at 2G, with `baseuser` as the data source login):
+
+```sql
+CREATE SERVICE ACCOUNT sa_analysts;
+-- required: ASSUME over PGWire checks the service account's own endpoint permission
+GRANT PGWIRE TO sa_analysts;
+GRANT SELECT ON ALL TABLES TO sa_analysts;
+ALTER SERVICE ACCOUNT sa_analysts SET MEMORY LIMIT 2G;
+GRANT ASSUME SERVICE ACCOUNT sa_analysts TO baseuser;
+
+-- defense in depth: also bound the base login
+ALTER USER baseuser SET MEMORY LIMIT 256M;
+```
+
+Setting a limit requires the `SET MEMORY LIMIT` permission (database admins hold it
+implicitly). Use a regular user as the data source login rather than the built-in `admin`:
+the built-in admin can assume any service account without a grant and cannot be given a
+memory limit of its own.
+
+**Grafana setup**: in the data source config, open **Per-user service accounts**, enable
+the toggle, set a **Default service account**, and add **User mappings** (Grafana login →
+service account). The same can be provisioned via `jsonData`:
+
+```yaml
+    jsonData:
+      serviceAccountRoutingEnabled: true
+      defaultServiceAccount: sa_default
+      serviceAccountMappings:
+        - grafanaUser: johndoe
+          serviceAccount: sa_analysts
+        - grafanaUser: ceo
+          serviceAccount: sa_execs
+```
+
+This is resource governance, not a hard security boundary: the SQL editor lets a user run
+arbitrary SQL, including `EXIT SERVICE ACCOUNT <serviceAccount>;`, so set a memory limit on
+the base login too and grant it only the service accounts used here. An `EXIT` or `ASSUME` does
+not outlive the query that runs it: before reusing a pooled connection, the plugin assumes the
+routed service account again or, for a query that runs as the base login, replaces the
+connection if it is still assuming an account. Either way this costs one extra round trip per
+query on a reused connection. Note that one
+connection pool is created per active service account. `maxOpenConnections` applies **per
+pool** and defaults to `0` (unlimited), so with routing on the footprint is one unlimited
+pool per active account, not the single pool used when routing is off. Set
+`maxOpenConnections` to a sane per-pool value and favor groups over a unique account per
+user, so the total connection count stays bounded against QuestDB's PGWire connection limit.
+
+**Save & Test** validates the routing configuration: it rejects a malformed service-account
+name and, when a default service account is set, opens a routed connection and runs `ASSUME
+SERVICE ACCOUNT` against it — so a missing `GRANT ASSUME …`, a missing `GRANT PGWIRE` on the
+account, or a non-existent account is caught at config time rather than failing every routed
+query later. Per-user and per-group accounts are name-checked but not individually probed
+(there is no specific requesting user at config time), so verify those grants separately.
+
+#### Per-group routing via OIDC groups (Okta)
+
+> Builds on the feature above and is likewise **opt-in**. With no group mappings configured,
+> behavior is exactly the per-user feature's.
+
+When users log in through **OIDC / Generic OAuth** (e.g. Okta), the plugin can map a user's
+**group** to a service account, so a memory limit on that account caps the queries of
+everyone in the group without enumerating usernames. This requires **Forward OAuth Identity**
+(`jsonData.oauthPassThru: true`) on the data source: Grafana then forwards the user's ID
+token (as the `X-Id-Token` header) and the plugin reads the groups from it. The token is
+injected by the Grafana server from the user's session, so — like the username — the group
+identity cannot be forged from the query payload.
+
+Resolution is most-specific-first: **user mapping → group mapping → default service
+account**. When a user belongs to several mapped groups, the **first matching row (top-down)**
+wins. Matching is case-insensitive. Groups are read from the `groups` claim by default;
+override the claim name with `groupsClaim` if your IdP uses a different one.
+
+**Okta**: add a `groups` claim to the OIDC app's **ID token** (Sign On → OpenID Connect ID
+Token → Edit), scoped to the groups you map. **Grafana**: under **Per-user service accounts**
+enable **Forward OAuth Identity** and add **Group mappings** (group → service account).
+Provisioned via `jsonData`:
+
+```yaml
+    jsonData:
+      oauthPassThru: true                 # Forward OAuth Identity (core Grafana setting)
+      serviceAccountRoutingEnabled: true
+      defaultServiceAccount: sa_default
+      groupsClaim: groups                 # optional; defaults to "groups"
+      serviceAccountGroupMappings:
+        - group: Analysts
+          serviceAccount: sa_analysts
+        - group: Execs
+          serviceAccount: sa_execs
+```
+
+SAML logins do not mint an OIDC ID token, so this route is unavailable there; those users
+fall back to username mappings and the default service account. The groups claim is read for
+governance without verifying the token's signature or expiry, so do not treat it as a hard
+security boundary (the `EXIT SERVICE ACCOUNT` caveat above still applies).
+
 ## Building queries
 
 The query editor allows you to query QuestDB to return time series or

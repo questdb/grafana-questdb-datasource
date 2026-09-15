@@ -14,6 +14,16 @@ export enum PostgresTLSMethods {
   fileContent = 'file-content',
 }
 
+export interface ServiceAccountMapping {
+  grafanaUser: string;
+  serviceAccount: string;
+}
+
+export interface ServiceAccountGroupMapping {
+  group: string;
+  serviceAccount: string;
+}
+
 export interface QuestDBConfig extends DataSourceJsonData {
   username: string;
   server: string;
@@ -36,6 +46,16 @@ export interface QuestDBConfig extends DataSourceJsonData {
 
   tlsClientCertFile?: string;
   tlsClientKeyFile?: string;
+
+  // Per-user service-account routing (QuestDB Enterprise only).
+  serviceAccountRoutingEnabled?: boolean;
+  defaultServiceAccount?: string;
+  serviceAccountMappings?: ServiceAccountMapping[];
+  // Per-group routing via the forwarded OIDC ID token (requires "Forward OAuth Identity").
+  serviceAccountGroupMappings?: ServiceAccountGroupMapping[];
+  groupsClaim?: string;
+  // Grafana core "Forward OAuth Identity" flag; group routing needs the forwarded ID token.
+  oauthPassThru?: boolean;
 }
 
 export interface QuestDBSecureConfig {
